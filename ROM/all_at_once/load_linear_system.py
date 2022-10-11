@@ -34,3 +34,4 @@ for cycle in os.listdir(OUTPUT_PATH):
   print("-----")
   print("No BC:", np.dot(dual_rhs_no_bc, solution_cpp))
   print("BC:   ", np.dot(dual_rhs_bc, solution_cpp))
+  print("PY:   ", np.dot(dual_rhs_no_bc, solution_py))

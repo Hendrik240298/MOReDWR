@@ -193,6 +193,7 @@ private:
 	void output_results(const unsigned int refinement_cycle) const;
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
 	void process_solution(const unsigned int cycle);
+	void print_coordinates(std::string output_dir);
 	
 	// space
 	Triangulation<dim>            space_triangulation;		
@@ -917,6 +918,42 @@ void SpaceTime<dim>::print_convergence_table() {
 }
 
 template<int dim>
+void SpaceTime<dim>::print_coordinates(std::string output_dir)
+{ 
+  // space
+  std::vector<Point<dim>> space_support_points(space_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<dim,dim>(),                    
+    space_dof_handler,
+    space_support_points
+  ); 
+  
+  std::ofstream x_out(output_dir + "coordinates_x.txt");
+  x_out.precision(9);
+  x_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (auto point : space_support_points)
+      x_out << point[0] << ' ';
+  x_out << std::endl;
+
+  // time
+  std::vector<Point<1>> time_support_points(time_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<1,1>(),                    
+    time_dof_handler,
+    time_support_points
+  ); 
+  
+  std::ofstream t_out(output_dir + "coordinates_t.txt");
+  t_out.precision(9);
+  t_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (auto point : time_support_points)
+      t_out << point[0] << ' ';
+  t_out << std::endl;
+}
+
+template<int dim>
 void SpaceTime<dim>::run() {
 	Assert(dim==1, ExcNotImplemented());
   
@@ -943,8 +980,11 @@ void SpaceTime<dim>::run() {
 		double goal_functional = compute_goal_functional();
 		std::cout << "J(u_h) = " << goal_functional << std::endl;
 		
-		// output solution to txt file
+		// output Space-Time DoF coordinates
 		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+		print_coordinates(output_dir);
+		
+		// output solution to txt file
 		std::ofstream solution_out(output_dir + "solution.txt");
 		solution.print(solution_out, /*precision*/9);
 		
