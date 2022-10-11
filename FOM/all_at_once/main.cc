@@ -87,6 +87,20 @@ double InitialValues<dim>::value(const Point<dim> &p,
 }
 
 template<int dim>
+class DualFinalValues: public Function<dim> {
+public:
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const override;
+};
+
+template<int dim>
+double DualFinalValues<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	// u_T(x) = 0
+	return 0.;
+}
+
+template<int dim>
 class Solution: public Function<dim> {
 public:
 	virtual double value(const Point<dim> &p,
@@ -138,6 +152,29 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 }
 
 template<int dim>
+class DualRightHandSide: public Function<dim> {
+public:
+	DualRightHandSide(double _T) :
+			Function<dim>() {
+	  T = _T;
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+private:
+	double T;
+};
+
+template<int dim>
+double DualRightHandSide<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = (2/T) * 1_(0,0.5)(x) -> 1_D(x) := { 1 for x in D and 0 else }
+	return (2. / T) * (p[0] <= 0.5);
+}
+
+
+template<int dim>
 class SpaceTime {
 public:
 	SpaceTime(int s, int r, double start_time = 0.0, double end_time = 1.0,
@@ -152,6 +189,7 @@ private:
 	void assemble_system(unsigned int cycle);
 	void apply_boundary_conditions();
 	void solve();
+	double compute_goal_functional();
 	void output_results(const unsigned int refinement_cycle) const;
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
 	void process_solution(const unsigned int cycle);
@@ -171,6 +209,7 @@ private:
 	SparseMatrix<double> system_matrix;
 	Vector<double> solution;
 	Vector<double> system_rhs;
+	Vector<double> dual_rhs;
 
 	double start_time, end_time;
 	std::set< std::pair<double, unsigned int> > time_support_points; // (time_support_point, support_point_index)
@@ -283,11 +322,13 @@ void SpaceTime<dim>::setup_system() {
 	
 	solution.reinit(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
+	dual_rhs.reinit(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
 }
 
 template<int dim>
 void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	RightHandSide<dim> right_hand_side;
+	DualRightHandSide<dim> dual_right_hand_side(end_time-start_time);
 
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);
@@ -315,8 +356,9 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	FullMatrix<double> cell_jump(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
+	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
-
+	
 	// locally assemble on each space-time cell
 	for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
 	  space_fe_values.reinit(space_cell);
@@ -327,6 +369,7 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	    
 	    cell_matrix = 0;
 	    cell_rhs = 0;
+	    cell_dual_rhs = 0;
 	    cell_jump = 0;
 	    
 	    for (const unsigned int qq : time_fe_values.quadrature_point_indices())
@@ -347,6 +390,13 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 		    cell_rhs(i + ii * space_dofs_per_cell) += (
 		         space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
 								     right_hand_side.value(x_q) * // f(t_qq, x_q)
+					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
+		    );
+		    
+		    // dual right hand side
+		    cell_dual_rhs(i + ii * space_dofs_per_cell) += (
+		         space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
+								dual_right_hand_side.value(x_q) * // f_dual(t_qq, x_q)
 					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
 		    );
 		    
@@ -386,6 +436,7 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 		      ) * space_fe_values.JxW(q); 						//  d(x)
 	      
 	    // initial condition and jump terms
+	    // TODO: similar assembly for DualFinalValues
 	    if (time_cell->active_cell_index() == 0)
 	    {
 	      //////////////////////////
@@ -436,6 +487,9 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 		// right hand side
 		system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
 		
+		// dual right hand side
+		dual_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_dual_rhs(i + ii * space_dofs_per_cell);
+		
 		// system matrix
 		for (const unsigned int j : space_fe_values.dof_indices())
 		  for (const unsigned int jj : time_fe_values.dof_indices())
@@ -477,6 +531,9 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc.txt");
 	system_rhs.print(rhs_no_bc_out, /*precision*/9);
 	
+	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc.txt");
+	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/9);
+	
 	/////////////////////////////////////
 	// apply BC to linear equation system
 	apply_boundary_conditions();
@@ -488,6 +545,9 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	
 	std::ofstream rhs_bc_out(output_dir + "rhs_bc.txt");
 	system_rhs.print(rhs_bc_out, /*precision*/9);
+	
+	std::ofstream dual_rhs_bc_out(output_dir + "dual_rhs_bc.txt");
+	dual_rhs.print(dual_rhs_bc_out, /*precision*/9);
 }	
 
 template<int dim>
@@ -526,6 +586,7 @@ void SpaceTime<dim>::apply_boundary_conditions() {
 	    p->value() = 0.;
 	  system_matrix.set(id, id, 1.);
 	  system_rhs(id) = entry.second;
+	  dual_rhs(id) = 0.; // dual BC are homogeneous
 	}
       }
     }
@@ -533,11 +594,56 @@ void SpaceTime<dim>::apply_boundary_conditions() {
 
 template<int dim>
 void SpaceTime<dim>::solve() {
-	SparseDirectUMFPACK A_direct;
-	A_direct.initialize(system_matrix);
-	A_direct.vmult(solution, system_rhs);
+  SparseDirectUMFPACK A_direct;
+  A_direct.initialize(system_matrix);
+  A_direct.vmult(solution, system_rhs);
 }
 
+template<int dim>
+double SpaceTime<dim>::compute_goal_functional() {
+  double mean_value = 0.;
+  
+  // space
+  QGauss<dim> space_quad_formula(space_fe.degree + 2);
+  FEValues<dim> space_fe_values(space_fe, space_quad_formula, update_values | update_JxW_values);
+  std::vector<double> space_values(space_quad_formula.size());
+  
+  // time
+  FEValues<1> time_fe_values(time_fe, QGauss<1>(time_fe.degree + 2), update_values | update_JxW_values);
+  std::vector<types::global_dof_index> time_local_dof_indices(time_fe.n_dofs_per_cell());
+  
+  for (const auto &time_cell : time_dof_handler.active_cell_iterators()) 
+  {
+    time_fe_values.reinit(time_cell);
+    time_cell->get_dof_indices(time_local_dof_indices);
+
+    for (const unsigned int qq : time_fe_values.quadrature_point_indices()) 
+    {
+      // get the space solution at the quadrature point
+      Vector<double> space_solution(space_dof_handler.n_dofs());
+      for (const unsigned int ii : time_fe_values.dof_indices())
+      {
+	for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+	  space_solution(i) += solution(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_value(ii, qq);
+      }
+      
+      for (const auto &space_cell : space_dof_handler.active_cell_iterators())
+      {
+	if (space_cell->center()[0] <= 0.5)
+	{
+	 space_fe_values.reinit(space_cell);
+	 space_fe_values.get_function_values(space_solution, space_values);
+	 
+	 for (const unsigned int q : space_fe_values.quadrature_point_indices())
+	    mean_value += space_values[q] * space_fe_values.JxW(q) * time_fe_values.JxW(qq);
+	}
+      }
+    }
+  }
+  
+  return (2. / (end_time-start_time)) * mean_value;
+}  
+  
 // To avoid using external plotting software, we create the 1D output in the form of an SVG file ourselves.
 // cG(1):            we use SVG's "line" to visualize solution
 // cG(2), cG(3):     we use SVG's "path" to visualize solution with quadratic/cubic Bezier curves
@@ -833,6 +939,10 @@ void SpaceTime<dim>::run() {
 		assemble_system(cycle);
 		solve();
 		
+		// evaluate primal FEM solution in mean value goal functional
+		double goal_functional = compute_goal_functional();
+		std::cout << "J(u_h) = " << goal_functional << std::endl;
+		
 		// output solution to txt file
 		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
 		std::ofstream solution_out(output_dir + "solution.txt");
@@ -869,17 +979,6 @@ int main() {
 		  true,  // refine_space
 		  true   // refine_time
 		);
-		/*
-		SpaceTime<1> space_time_problem(
-		  1,     // s ->  spatial FE degree
-		  1,     // r -> temporal FE degree
-		  0.,    // start_time
-		  1.,    // end_time,
-		  3,     // max_n_refinement_cycles,
-		  true,  // refine_space
-		  true   // refine_time
-		);
-		*/
 		space_time_problem.run();
 
 		// save final grid
