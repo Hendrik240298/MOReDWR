@@ -24,6 +24,12 @@ for cycle in os.listdir(OUTPUT_PATH):
   rhs_bc = np.loadtxt(OUTPUT_PATH + cycle + "/rhs_bc.txt")
   dual_rhs_bc = np.loadtxt(OUTPUT_PATH + cycle + "/dual_rhs_bc.txt")
   
+  # applying BC to dual matrix
+  dual_matrix = matrix_no_bc.T.tocsr()
+  for row in set((matrix_no_bc-matrix_bc).nonzero()[0]):
+    for col in dual_matrix.getrow(row).nonzero()[1]:
+      dual_matrix[row, col] = 1. if row == col else 0.
+  
   # coordinates
   coordinates_x = np.loadtxt(OUTPUT_PATH + cycle + "/coordinates_x.txt")
   coordinates_t = np.loadtxt(OUTPUT_PATH + cycle + "/coordinates_t.txt")
@@ -45,7 +51,7 @@ for cycle in os.listdir(OUTPUT_PATH):
     plt.show()
   
   # dual solution
-  dual_solution = scipy.sparse.linalg.spsolve(matrix_bc.T, dual_rhs_bc)
+  dual_solution = scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs_bc) #matrix_bc.T
   if PLOTTING:
     grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
     dual_grid = scipy.interpolate.griddata(coordinates, dual_solution, (grid_t, grid_x), method=INTERPOLATION_TYPE)
