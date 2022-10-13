@@ -787,11 +787,9 @@ void SpaceTime<1>::output_svg(std::ofstream &out, Vector<double> &space_solution
 
 template<>
 void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
-	// create output directory if necessary
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
-	for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
-	  mkdir(dir, S_IRWXU);
 	
+	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
+
 	// highest and lowest value of solution
 	double y_max = std::max(*std::max_element(solution.begin(), solution.end()), 0.);
 	double y_min = std::min(*std::min_element(solution.begin(), solution.end()), 0.);
@@ -971,6 +969,11 @@ void SpaceTime<dim>::run() {
 				<< "-------------------------------------------------------------"
 				<< std::endl;
 
+		// create output directory if necessary
+		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+		for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
+		mkdir(dir, S_IRWXU);
+
 		// create and solve linear system
 		setup_system();
 		assemble_system(cycle);
@@ -981,7 +984,6 @@ void SpaceTime<dim>::run() {
 		std::cout << "J(u_h) = " << goal_functional << std::endl;
 		
 		// output Space-Time DoF coordinates
-		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
 		print_coordinates(output_dir);
 		
 		// output solution to txt file
