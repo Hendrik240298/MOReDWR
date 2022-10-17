@@ -72,6 +72,51 @@
 
 using namespace dealii;
 
+
+void print_as_numpy_arrays_high_resolution(	SparseMatrix<double> &matrix,
+											std::ostream &     out,
+                                            const unsigned int precision)
+{
+  AssertThrow(out.fail() == false, ExcIO());
+
+  out.precision(precision);
+  out.setf(std::ios::scientific, std::ios::floatfield);
+
+  Assert(cols != nullptr, ExcNeedsSparsityPattern());
+  Assert(val != nullptr, ExcNotInitialized());
+
+  std::vector<int> rows;
+  std::vector<int> columns;
+  std::vector<double> values;
+  rows.reserve(matrix.n_nonzero_elements());
+  columns.reserve(matrix.n_nonzero_elements());
+  values.reserve(matrix.n_nonzero_elements());
+
+  SparseMatrixIterators::Iterator< double, false > it = matrix.begin();
+  for (unsigned int i = 0; i < matrix.m(); i++) {
+ 	 for (it = matrix.begin(i); it != matrix.end(i); ++it) {
+ 		rows.push_back(i);
+ 		columns.push_back(it->column());
+		values.push_back(matrix.el(i,it->column()));
+ 	 }
+  }
+
+  for (auto d : values)
+    out << d << ' ';
+  out << '\n';
+
+  for (auto r : rows)
+    out << r << ' ';
+  out << '\n';
+
+  for (auto c : columns)
+    out << c << ' ';
+  out << '\n';
+  out << std::flush;
+
+  AssertThrow(out.fail() == false, ExcIO());
+}
+
 template<int dim>
 class InitialValues: public Function<dim> {
 public:
@@ -527,13 +572,13 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	/////////////////////////////////////////////
 	// save system matrix and rhs to file (NO BC)
 	std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
-	system_matrix.print_as_numpy_arrays(matrix_no_bc_out);
-	
+	print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16);
+
 	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc.txt");
-	system_rhs.print(rhs_no_bc_out, /*precision*/9);
+	system_rhs.print(rhs_no_bc_out, /*precision*/16);
 	
 	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc.txt");
-	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/9);
+	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
 	
 	/////////////////////////////////////
 	// apply BC to linear equation system
@@ -542,13 +587,13 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	//////////////////////////////////////////
 	// save system matrix and rhs to file (BC)
 	std::ofstream matrix_bc_out(output_dir + "matrix_bc.txt");
-	system_matrix.print_as_numpy_arrays(matrix_bc_out);
+	print_as_numpy_arrays_high_resolution(system_matrix, matrix_bc_out, /*precision*/16);
 	
 	std::ofstream rhs_bc_out(output_dir + "rhs_bc.txt");
-	system_rhs.print(rhs_bc_out, /*precision*/9);
+	system_rhs.print(rhs_bc_out, /*precision*/16);
 	
 	std::ofstream dual_rhs_bc_out(output_dir + "dual_rhs_bc.txt");
-	dual_rhs.print(dual_rhs_bc_out, /*precision*/9);
+	dual_rhs.print(dual_rhs_bc_out, /*precision*/16);
 }	
 
 template<int dim>

@@ -157,7 +157,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.show()
 
         plt.plot(coordinates_x, dual_pod_basis[:, 0], color="blue")
-        plt.plot(coordinates_x, dual_pod_basis[:, 1], color="red")
+        #plt.plot(coordinates_x, dual_pod_basis[:, 1], color="red")
         plt.xlabel("$x$")
         plt.title("Dual POD vectors")
         plt.show()
