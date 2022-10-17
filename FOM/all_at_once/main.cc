@@ -82,9 +82,6 @@ void print_as_numpy_arrays_high_resolution(	SparseMatrix<double> &matrix,
   out.precision(precision);
   out.setf(std::ios::scientific, std::ios::floatfield);
 
-  Assert(cols != nullptr, ExcNeedsSparsityPattern());
-  Assert(val != nullptr, ExcNotInitialized());
-
   std::vector<int> rows;
   std::vector<int> columns;
   std::vector<double> values;

@@ -148,30 +148,37 @@ for cycle in os.listdir(OUTPUT_PATH):
     dual_pod_basis = np.dot(np.dot(Y_dual, dual_eigen_vectors[:, :r_dual]), np.diag(
         1. / np.sqrt(dual_eigen_values[:r_dual])))
 
+    colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
     # plot the POD basis
     if PLOTTING:
-        plt.plot(coordinates_x, pod_basis[:, 0], color="blue")
-        #plt.plot(coordinates_x, pod_basis[:, 1], color="red")
-        plt.xlabel("$x$")
-        plt.title("Primal POD vectors")
-        plt.show()
+      for i in range(r):
+        plt.plot(coordinates_x, pod_basis[:, i], color=colors[i % len(colors)])
+      plt.xlabel("$x$")
+      plt.title("Primal POD vectors")
+      plt.show()
 
-        plt.plot(coordinates_x, dual_pod_basis[:, 0], color="blue")
-        #plt.plot(coordinates_x, dual_pod_basis[:, 1], color="red")
-        plt.xlabel("$x$")
-        plt.title("Dual POD vectors")
-        plt.show()
+      for i in range(r_dual):
+        plt.plot(coordinates_x, dual_pod_basis[:, i], color=colors[i % len(colors)])
+      plt.xlabel("$x$")
+      plt.title("Dual POD vectors")
+      plt.show()
 
     # change from the FOM to the POD basis
     space_time_pod_basis = scipy.sparse.block_diag([pod_basis]*n_dofs["time"]) # NOTE: this might be a bit inefficient
-    plt.spy(space_time_pod_basis, markersize=2)
-    plt.show()
+    dual_space_time_pod_basis = scipy.sparse.block_diag([dual_pod_basis]*n_dofs["time"])
+    if PLOTTING:
+      plt.spy(space_time_pod_basis, markersize=2)
+      plt.show()
     
     reduced_system_matrix = space_time_pod_basis.T.dot(matrix_no_bc.dot(space_time_pod_basis))
     reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc)
     
+    reduced_dual_matrix = dual_space_time_pod_basis.T.dot(matrix_no_bc.T.dot(dual_space_time_pod_basis))
+    reduced_dual_rhs = dual_space_time_pod_basis.T.dot(dual_rhs_no_bc)
+    
     # solve reduced linear system
     reduced_solution = scipy.sparse.linalg.spsolve(reduced_system_matrix, reduced_rhs)
+    reduced_dual_solution = scipy.sparse.linalg.spsolve(reduced_dual_matrix, reduced_dual_rhs)
     #print(reduced_solution.shape)
     #true_reduced_solution = space_time_pod_basis.T.dot(primal_solution)
     #print(true_reduced_solution.reshape(-1,r)[:,0:1])
@@ -181,6 +188,7 @@ for cycle in os.listdir(OUTPUT_PATH):
     #print(f"Reduced solution is wrong by a factor of {reduced_solution[0]/true_reduced_solution[0]}")
     
     projected_reduced_solution = space_time_pod_basis.dot(reduced_solution)
+    projected_reduced_dual_solution = dual_space_time_pod_basis.dot(reduced_dual_solution)
     J["u_r"].append(np.dot(dual_rhs_no_bc, projected_reduced_solution))
     print("J(u_h) =", J["u_h"])
     print("J(u_r) =", J["u_r"][-1]) # TODO: in the future compare J(u_r) for different values of r
@@ -203,7 +211,25 @@ for cycle in os.listdir(OUTPUT_PATH):
       fig.colorbar(im1, ax=axs[1])
       plt.show()
 
+    # ----------------
+    # error estimation
+    true_error = J['u_h']-J['u_r'][-1]
     
+    # using FOM dual solution
+    print("\nUsing z_h:")
+    print("----------")
+    error_estimator = -dual_solution.dot(matrix_no_bc.dot(projected_reduced_solution)) + dual_solution.dot(rhs_no_bc)
+    print(f"True error:        {true_error}")
+    print(f"Estimated error:   {error_estimator}")
+    print(f"Effectivity index: {abs(true_error / error_estimator)}")
+    
+    # using ROM dual solution
+    print("\nUsing z_r:")
+    print("----------")
+    error_estimator_cheap = -projected_reduced_dual_solution.dot(matrix_no_bc.dot(projected_reduced_solution)) + projected_reduced_dual_solution.dot(rhs_no_bc)
+    print(f"True error:              {true_error}")
+    print(f"Cheap estimated error:   {error_estimator_cheap}")
+    print(f"Effectivity index:       {abs(true_error / error_estimator_cheap)}")
     
     """
     reduced_system_matrix = scipy.sparse.dok_matrix(
