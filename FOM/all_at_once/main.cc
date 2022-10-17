@@ -132,6 +132,20 @@ double InitialValues<dim>::value(const Point<dim> &p,
 }
 
 template<int dim>
+class ZeroInitialValues: public Function<dim> {
+public:
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const override;
+};
+
+template<int dim>
+double ZeroInitialValues<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	// u_0(x) = 0.
+	return 0.0;
+}
+
+template<int dim>
 class DualFinalValues: public Function<dim> {
 public:
 	virtual double value(const Point<dim> &p,
@@ -196,6 +210,65 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 			* (0.5 + std::pow(M_PI, 2) + (std::pow(M_PI, 2) - 0.5) * t);
 }
 
+
+
+
+template<int dim>
+class RightHandSideSingleSource: public Function<dim> {
+public:
+	RightHandSideSingleSource() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideSingleSource<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1(4,1/2)
+	//			{0.0, if t in odd  intervall and x else
+	double value = 0;
+
+	if ((p[0] >= (1./8.)) && (p[0] <=(3./8.)))
+		if (int (std::floor(t)) % 2 == 0)
+			value = 0.2;
+	return value;
+}
+
+
+template<int dim>
+class RightHandSideTwoSources: public Function<dim> {
+public:
+	RightHandSideTwoSources() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideTwoSources<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1/8,3/8)
+	//			{-0.2, if t in odd intervall and x in (6/8,7/8)
+	//			{0.0, else
+	double value = 0;
+
+	if ((p[0] >= (1./8)) && (p[0] <=(3./8)))
+		if (int (std::floor(t)) % 2 == 0)
+			value = 0.2;
+	if ((p[0] >= (6./8)) && (p[0] <=(7./8)))
+		if (int (std::floor(t)) % 2 != 0)
+			value = -0.2;
+	return value;
+}
+
+
 template<int dim>
 class DualRightHandSide: public Function<dim> {
 public:
@@ -213,7 +286,7 @@ template<int dim>
 double DualRightHandSide<dim>::value(const Point<dim> &p,
 		const unsigned int /*component*/) const {
 	Assert(dim == 1, ExcInternalError());
-	const double t = this->get_time();
+//	const double t = this->get_time();
 	// f(t,x) = (2/T) * 1_(0,0.5)(x) -> 1_D(x) := { 1 for x in D and 0 else }
 	return (2. / T) * (p[0] <= 0.5);
 }
@@ -373,8 +446,12 @@ void SpaceTime<dim>::setup_system() {
 
 template<int dim>
 void SpaceTime<dim>::assemble_system(unsigned int cycle) {
-	RightHandSide<dim> right_hand_side;
 	DualRightHandSide<dim> dual_right_hand_side(end_time-start_time);
+
+	// other rhs
+//	RightHandSide<dim> right_hand_side;
+//	RightHandSideSingleSource<dim> right_hand_side;
+	RightHandSideTwoSources<dim> right_hand_side;
 
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);
@@ -423,6 +500,7 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	      // time quadrature point
 	      const double t_qq = time_fe_values.quadrature_point(qq)[0];
 	      right_hand_side.set_time(t_qq);
+	      dual_right_hand_side.set_time(t_qq);
 	      
 	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
 	      {
@@ -487,7 +565,8 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	    {
 	      //////////////////////////
 	      // initial condition
-	      InitialValues<dim> initial_values;
+//	      InitialValues<dim> initial_values;
+	      ZeroInitialValues<dim> initial_values;
 	      // (u_0^-,φ_0^-)_Ω
 	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
 	      {
