@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
+import scipy.linalg
 import scipy.interpolate
 import matplotlib.pyplot as plt
 import os
@@ -9,6 +10,51 @@ PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 OUTPUT_PATH = "../../FOM/all_at_once/output/dim=1/"
+
+
+def iPOD(POD, bunch, singular_values, snapshot, total_energy):
+    bunch_size = 2
+    energy_content = 0.9999
+    row, col_POD = POD.shape
+    bunch = np.hstack((bunch, snapshot.reshape(-1, 1)))
+    _, col = bunch.shape
+
+    total_energy += np.dot(snapshot, snapshot)
+
+    if (col == bunch_size):
+        if (col_POD == 0):
+            POD, S, _ = scipy.linalg.svd(bunch, full_matrices=False)
+            r = 0
+            # np.shape(S_k)[0])):
+            while ((np.dot(S[0:r], S[0:r])/total_energy <= energy_content) and (r <= 2)):
+                r += 1
+                # print(r)
+            singular_values = S[0:r]
+            POD = POD[:, 0:r]
+        else:
+            M = np.dot(POD.T, bunch)
+            P = bunch - np.dot(POD, M)
+            Q_p, R_p = scipy.linalg.qr(P, mode='economic')
+            S = np.diag(singular_values)
+            S0 = np.vstack((S, np.zeros((np.shape(R_p)[0], np.shape(S)[0]))))
+            MR_p = np.vstack((M, R_p))
+            K = np.hstack((S0, MR_p))
+            U_k, S_k, _ = scipy.linalg.svd(K, full_matrices=False)
+            Q = np.hstack((POD, Q_p))
+            Q_q, _ = scipy.linalg.qr(Q, mode='economic')
+
+            r = 0
+            while ((np.dot(S_k[0:r], S_k[0:r])/total_energy <= energy_content) and (r <= np.shape(S_k)[0])):
+                r += 1
+                # print(r)
+
+            singular_values = S_k[0:r]
+            POD = np.matmul(Q_q, U_k[:, 0:r])
+        bunch = np.empty([np.shape(bunch)[0], 0])
+        # print(np.shape(POD))
+
+    return POD, bunch, singular_values, total_energy
+
 
 for cycle in os.listdir(OUTPUT_PATH):
     print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
@@ -109,10 +155,25 @@ for cycle in os.listdir(OUTPUT_PATH):
     dual_eigen_values, dual_eigen_vectors = dual_eigen_values[dual_eigen_values.argsort(
     )[::-1]], dual_eigen_vectors[eigen_values.argsort()[::-1]]
 
+    # pod_basis_svd = iPOD(pod_basis,pod_basis,Y[:,0])
+    total_energy = 0
+    POD = np.empty([0, 0])
+    bunch = np.empty([np.shape(Y)[0], 0])
+    singular_values = np.empty([0, 0])
+    for i in range(1, np.shape(Y)[1], 1):
+        POD, bunch, singular_values, total_energy = iPOD(
+            POD, bunch, singular_values, Y[:, i], total_energy)
+    POD_full, singular_values_test, _ = scipy.linalg.svd(Y, full_matrices=False)
+    POD_full = POD_full[:,0:np.shape(singular_values)[0]]
     # plot eigen value decay
     if PLOTTING:
         plt.plot(
-            range(1, min(n_dofs["space"], n_dofs["time"])+1), eigen_values)
+            range(1, min(n_dofs["space"], n_dofs["time"])+1), eigen_values, label="correlation matrix")
+        plt.plot(
+            range(1, np.shape(singular_values)[0]+1), np.power(singular_values,2), label="iSVD")
+        plt.plot(
+            range(1, np.shape(singular_values)[0]+1), np.power(singular_values_test[0:np.shape(singular_values)[0]],2), label="SVD")
+        plt.legend()
         plt.yscale("log")
         plt.xlabel("index")
         plt.ylabel("eigen value")
@@ -150,7 +211,8 @@ for cycle in os.listdir(OUTPUT_PATH):
 
     dual_pod_basis = np.dot(np.dot(Y_dual, dual_eigen_vectors[:, :r_dual]), np.diag(
         1. / np.sqrt(dual_eigen_values[:r_dual])))
-
+    # choose iSVD basis instead of correlation
+    pod_basis = POD_full
     colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
     # plot the POD basis
     if PLOTTING:
@@ -246,7 +308,8 @@ for cycle in os.listdir(OUTPUT_PATH):
         time_step_size = 4.0 / (n_dofs["time"] / 2)
         xx, yy = [], []
         for i, error in enumerate(temporal_interval_error):
-            xx += [i * time_step_size,(i+1) * time_step_size,(i+1) * time_step_size]
+            xx += [i * time_step_size,
+                   (i+1) * time_step_size, (i+1) * time_step_size]
             yy += [abs(error), abs(error), np.inf]
         axs[2].plot(xx, yy)
         axs[2].set_xlabel("$t$")
