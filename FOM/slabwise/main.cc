@@ -77,6 +77,47 @@
 
 using namespace dealii;
 
+void print_as_numpy_arrays_high_resolution(SparseMatrix<double> &matrix,
+					    std::ostream &     out,
+                                            const unsigned int precision)
+{
+  AssertThrow(out.fail() == false, ExcIO());
+
+  out.precision(precision);
+  out.setf(std::ios::scientific, std::ios::floatfield);
+
+  std::vector<int> rows;
+  std::vector<int> columns;
+  std::vector<double> values;
+  rows.reserve(matrix.n_nonzero_elements());
+  columns.reserve(matrix.n_nonzero_elements());
+  values.reserve(matrix.n_nonzero_elements());
+
+  SparseMatrixIterators::Iterator< double, false > it = matrix.begin();
+  for (unsigned int i = 0; i < matrix.m(); i++) {
+ 	 for (it = matrix.begin(i); it != matrix.end(i); ++it) {
+ 		rows.push_back(i);
+ 		columns.push_back(it->column());
+		values.push_back(matrix.el(i,it->column()));
+ 	 }
+  }
+
+  for (auto d : values)
+    out << d << ' ';
+  out << '\n';
+
+  for (auto r : rows)
+    out << r << ' ';
+  out << '\n';
+
+  for (auto c : columns)
+    out << c << ' ';
+  out << '\n';
+  out << std::flush;
+
+  AssertThrow(out.fail() == false, ExcIO());
+}
+
 template<int dim>
 class InitialValues: public Function<dim> {
 public:
@@ -98,6 +139,20 @@ double InitialValues<dim>::value(const Point<dim> &p,
 		Assert(false, ExcNotImplemented());
 	}
 	return -1.0; // to avoid "no return warning"
+}
+
+template<int dim>
+class ZeroInitialValues: public Function<dim> {
+public:
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const override;
+};
+
+template<int dim>
+double ZeroInitialValues<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	// u_0(x) = 0.
+	return 0.0;
 }
 
 template<int dim>
@@ -211,6 +266,84 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 	return -1.0; // to avoid "no return warning"
 }
 
+template<int dim>
+class RightHandSideSingleSource: public Function<dim> {
+public:
+	RightHandSideSingleSource() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideSingleSource<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1(4,1/2)
+	//			{0.0, if t in odd  intervall and x else
+	double value = 0;
+
+	if ((p[0] >= (1./8.)) && (p[0] <=(3./8.)))
+		if (int (std::floor(t)) % 2 == 0)
+			value = 0.2;
+	return value;
+}
+
+
+template<int dim>
+class RightHandSideTwoSources: public Function<dim> {
+public:
+	RightHandSideTwoSources() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideTwoSources<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1/8,3/8)
+	//			{-0.2, if t in odd intervall and x in (6/8,7/8)
+	//			{0.0, else
+	double value = 0;
+
+	if ((p[0] >= (1./8)) && (p[0] <=(3./8)))
+		if (int (std::floor(t)) % 2 == 0)
+			value = 0.2;
+	if ((p[0] >= (6./8)) && (p[0] <=(7./8)))
+		if (int (std::floor(t)) % 2 != 0)
+			value = -0.2;
+	return value;
+}
+
+
+template<int dim>
+class DualRightHandSide: public Function<dim> {
+public:
+	DualRightHandSide(double _T) :
+			Function<dim>() {
+	  T = _T;
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+private:
+	double T;
+};
+
+template<int dim>
+double DualRightHandSide<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+//	const double t = this->get_time();
+	// f(t,x) = (2/T) * 1_(0,0.5)(x) -> 1_D(x) := { 1 for x in D and 0 else }
+	return (2. / T) * (p[0] <= 0.5);
+}
+
 class Slab {
 public:
   // constructor
@@ -241,8 +374,8 @@ public:
 private:
         void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
-	void assemble_system(std::shared_ptr<Slab> &slab, bool assemble_matrix);
-	void apply_boundary_conditions(std::shared_ptr<Slab> &slab);
+	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab, bool assemble_matrix);
+	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab);
 	void solve(bool invert);
 	void output_results(const unsigned int refinement_cycle);
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
@@ -259,10 +392,13 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> jump_matrix;
 	SparseDirectUMFPACK A_direct;
-	Vector<double> solution;
+	Vector<double> solution; // space-time solution on current slab
+	Vector<double> last_solution; // space-time solution on previous slab
 	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
+	Vector<double> dual_rhs;
 
 	double start_time, end_time;
 	std::set< std::pair<double, unsigned int> > time_support_points; // (time_support_point, support_point_index)
@@ -366,7 +502,7 @@ void SpaceTime<1>::make_grids() {
 			  cell->face(face)->set_boundary_id(0);
 
 	// globally refine the grids
-	space_triangulation.refine_global(3+5);
+	space_triangulation.refine_global(3);
 	for (auto &slab : slabs)
 	  slab->time_triangulation.refine_global(0);
 }
@@ -397,54 +533,71 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	std::cout << "   Number of degrees of freedom: " << space_dof_handler.n_dofs() << " (space), "
 		  << slab->time_dof_handler.n_dofs() << " (time)" << std::endl;
 
-  
-	/////////////////////////////////////////////////////////////////////////////////////////
-	// space-time sparsity pattern = tensor product of spatial and temporal sparsity pattern
-	//
-		 
-	// spatial sparsity pattern
-	DynamicSparsityPattern space_dsp(space_dof_handler.n_dofs());
-	DoFTools::make_sparsity_pattern(space_dof_handler, space_dsp);
+	if (k == 1)
+	{
+	  /////////////////////////////////////////////////////////////////////////////////////////
+	  // space-time sparsity pattern = tensor product of spatial and temporal sparsity pattern
+	  //
+		  
+	  // spatial sparsity pattern
+	  DynamicSparsityPattern space_dsp(space_dof_handler.n_dofs());
+	  DoFTools::make_sparsity_pattern(space_dof_handler, space_dsp);
 
-	// temporal sparsity pattern
-	DynamicSparsityPattern time_dsp(slab->time_dof_handler.n_dofs());
-	DoFTools::make_sparsity_pattern(slab->time_dof_handler, time_dsp);
-	
-	// include jump terms in temporal sparsity pattern
-	// for Gauss-Legendre quadrature we need to couple all temporal DoFs between two neighboring time intervals
-	unsigned int time_block_size = slab->time_fe.degree + 1;
-	for (unsigned int k = 1; k < slab->time_triangulation.n_active_cells(); ++k)
-	  for (unsigned int ii = 0; ii < time_block_size; ++ii)
-	    for (unsigned int jj = 0; jj < time_block_size; ++jj)
-	      time_dsp.add(k*time_block_size+ii, (k-1)*time_block_size+jj); 
+	  // temporal sparsity pattern
+	  DynamicSparsityPattern time_dsp(slab->time_dof_handler.n_dofs());
+	  DoFTools::make_sparsity_pattern(slab->time_dof_handler, time_dsp);
+	  
+	  // include jump terms in temporal sparsity pattern
+	  // for Gauss-Legendre quadrature we need to couple all temporal DoFs between two neighboring time intervals
+	  unsigned int time_block_size = slab->time_fe.degree + 1;
+	  for (unsigned int k = 1; k < slab->time_triangulation.n_active_cells(); ++k)
+	    for (unsigned int ii = 0; ii < time_block_size; ++ii)
+	      for (unsigned int jj = 0; jj < time_block_size; ++jj)
+		time_dsp.add(k*time_block_size+ii, (k-1)*time_block_size+jj); 
 
-	// SparsityPattern time_sparsity_pattern;
-	// time_sparsity_pattern.copy_from(time_dsp);
-	// std::ofstream out_time_sparsity("time_sparsity_pattern.svg");
-	// time_sparsity_pattern.print_svg(out_time_sparsity);
-	
-	// space-time sparsity pattern
-	DynamicSparsityPattern dsp(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
-	for (auto &space_entry : space_dsp)
-	  for (auto &time_entry : time_dsp)
-	    dsp.add(
-	      space_entry.row()    + space_dof_handler.n_dofs() * time_entry.row(),   // test  function
-	      space_entry.column() + space_dof_handler.n_dofs() * time_entry.column() // trial function
-	    );
-	
-	sparsity_pattern.copy_from(dsp);
-	std::ofstream out_sparsity("sparsity_pattern.svg");
-	sparsity_pattern.print_svg(out_sparsity);
-	
-	system_matrix.reinit(sparsity_pattern);
+	  // SparsityPattern time_sparsity_pattern;
+	  // time_sparsity_pattern.copy_from(time_dsp);
+	  // std::ofstream out_time_sparsity("time_sparsity_pattern.svg");
+	  // time_sparsity_pattern.print_svg(out_time_sparsity);
+	  
+	  // space-time sparsity pattern
+	  DynamicSparsityPattern dsp(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	  for (auto &space_entry : space_dsp)
+	    for (auto &time_entry : time_dsp)
+	      dsp.add(
+		space_entry.row()    + space_dof_handler.n_dofs() * time_entry.row(),   // test  function
+		space_entry.column() + space_dof_handler.n_dofs() * time_entry.column() // trial function
+	      );
+	  
+	  sparsity_pattern.copy_from(dsp);
+	  std::ofstream out_sparsity("sparsity_pattern.svg");
+	  sparsity_pattern.print_svg(out_sparsity);
+	  
+	  system_matrix.reinit(sparsity_pattern);
+	  
+	  if (slab->time_triangulation.n_active_cells() == 1)
+	    jump_matrix.reinit(sparsity_pattern);
+	}
+	else
+	{
+	  last_solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	  last_solution = solution;
+	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	dual_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 }
 
 template<int dim>
-void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_matrix) {
-	RightHandSide<dim> right_hand_side;
+void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab, bool assemble_matrix) {
+	// dual rhs
+	DualRightHandSide<dim> dual_right_hand_side(end_time-start_time);
+
+	// primal rhs
+//	RightHandSide<dim> right_hand_side;
+//	RightHandSideSingleSource<dim> right_hand_side;
+	RightHandSideTwoSources<dim> right_hand_side;
 
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);
@@ -472,6 +625,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	FullMatrix<double> cell_jump(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
+	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
 
 	// locally assemble on each space-time cell
@@ -484,6 +638,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 	    
 	    cell_matrix = 0;
 	    cell_rhs = 0;
+	    cell_dual_rhs = 0;
 	    cell_jump = 0;
 	    
 	    for (const unsigned int qq : time_fe_values.quadrature_point_indices())
@@ -491,6 +646,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 	      // time quadrature point
 	      const double t_qq = time_fe_values.quadrature_point(qq)[0];
 	      right_hand_side.set_time(t_qq);
+	      dual_right_hand_side.set_time(t_qq);
 	      
 	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
 	      {
@@ -504,6 +660,13 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 		    cell_rhs(i + ii * space_dofs_per_cell) += (
 		         space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
 								     right_hand_side.value(x_q) * // f(t_qq, x_q)
+					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
+		    );
+		    
+		    // dual right hand side
+		    cell_dual_rhs(i + ii * space_dofs_per_cell) += (
+		         space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
+								dual_right_hand_side.value(x_q) * // f_dual(t_qq, x_q)
 					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
 		    );
 		    
@@ -551,6 +714,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 	      // initial condition
 	      
 	      // (u_0^-,φ_0^-)_Ω
+	      if (first_slab)
 	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
 	      {
 		double initial_solution_x_q = 0.;
@@ -592,12 +756,39 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 			    ) * space_fe_values.JxW(q); 		      //  d(x)
 	    }
 	    
+	    if (assemble_matrix && (slab->time_triangulation.n_active_cells() == 1))
+	    {
+	      time_prev_fe_face_values.reinit(time_cell);
+	      time_cell->get_dof_indices(time_prev_local_dof_indices);
+	      
+	      //////////////
+	      // jump term
+	      
+	      // now we assemble (B): - (u_m^-,φ_m^+)_Ω
+	      // NOTE: cell_jump is a space-time cell matrix because we are using Gauss-Legendre quadrature in time
+	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
+		for (const unsigned int i : space_fe_values.dof_indices())
+		  for (const unsigned int ii : time_fe_values.dof_indices())
+		    for (const unsigned int j : space_fe_values.dof_indices())
+		      for (const unsigned int jj : time_fe_values.dof_indices())
+			cell_jump(
+			    j + jj * space_dofs_per_cell,
+			    i + ii * space_dofs_per_cell
+			  ) += (
+			    -1. * space_fe_values.shape_value(i, q) * time_prev_fe_face_values.shape_value(ii, 0) * // -ϕ_{i,ii}(t_m^-, x_q)
+			    space_fe_values.shape_value(j, q) * time_fe_face_values.shape_value(jj, 0)        	    //  ϕ_{j,jj}(t_m^+, x_q)
+			  ) * space_fe_values.JxW(q); 		      //  d(x)
+	    }
+	    
 	    // distribute local to global
 	    for (const unsigned int i : space_fe_values.dof_indices())
 	      for (const unsigned int ii : time_fe_values.dof_indices())
 	      {
 		// right hand side
 		system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
+		
+		// dual right hand side
+		dual_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_dual_rhs(i + ii * space_dofs_per_cell);
 		
 		// system matrix
 		if (assemble_matrix)
@@ -622,6 +813,17 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 			cell_jump(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
 		      );
 		
+	     if (assemble_matrix && (time_cell->active_cell_index() == 1))
+	      for (const unsigned int i : space_fe_values.dof_indices())
+		for (const unsigned int ii : time_fe_values.dof_indices())
+		  for (const unsigned int j : space_fe_values.dof_indices())
+		    for (const unsigned int jj : time_fe_values.dof_indices())
+		      jump_matrix.add(
+			space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+			space_local_dof_indices[j] + time_prev_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+			cell_jump(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		      );
+		    
 	     // prepare next time cell
 	     if (time_cell->active_cell_index() < slab->time_triangulation.n_active_cells()-1)
 	     {
@@ -631,13 +833,44 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_
 	  }
 	}
 	
-	apply_boundary_conditions(slab);
+	std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+	
+	////////////////////////////////////////////////////
+	// save system & jump matrix and rhs to file (NO BC)
+	if (assemble_matrix)
+	{
+	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
+	  
+	  std::ofstream jump_matrix_no_bc_out(output_dir + "jump_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(jump_matrix, jump_matrix_no_bc_out, /*precision*/16);
+	}
+	
+	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc.txt");
+	system_rhs.print(rhs_no_bc_out, /*precision*/16);
+	
+	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc.txt");
+	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
+	
+	if (!first_slab)
+	{
+	 Vector<double> tmp(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	 jump_matrix.vmult(tmp,last_solution);
+	 system_rhs -= tmp;
+	}
+	
+	/////////////////////////////////////
+	// apply BC to linear equation system
+	apply_boundary_conditions(slab, cycle, first_slab);
 }	
 
 template<int dim>
-void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab) {
+void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab) {
    // apply the spatial Dirichlet boundary conditions at each temporal DoF
    Solution<dim> solution_func;
+   
+   // list of constrained space-time DoF indices
+   std::vector<types::global_dof_index> boundary_ids;
    
    FEValues<1> time_fe_values(slab->time_fe, Quadrature<1>(slab->time_fe.get_unit_support_points()), update_quadrature_points);
    std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());
@@ -668,9 +901,20 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab) {
 	    p->value() = 0.;
 	  system_matrix.set(id, id, 1.);
 	  system_rhs(id) = entry.second;
+	  boundary_ids.push_back(id);
 	}
       }
     }
+    
+    if (first_slab)
+    {
+      std::ofstream boundary_id_out("output/dim=1/cycle=" + std::to_string(cycle) + "/" + "boundary_id.txt");
+      for (unsigned int i = 0; i < boundary_ids.size()-1; ++i)
+	boundary_id_out << boundary_ids[i] << " ";
+      boundary_id_out << boundary_ids[boundary_ids.size()-1];
+    }  
+      
+    
 }
 
 template<int dim>
@@ -828,8 +1072,8 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
 	  mkdir(dir, S_IRWXU);
 	
 	// highest and lowest value of solution (hardcoded for the given 1D problem)
-	double y_max = 1.4; //std::max(*std::max_element(solution.begin(), solution.end()), 0.);
-	double y_min = 0.0; //std::min(*std::min_element(solution.begin(), solution.end()), 0.);
+	double y_max = 0.009; //1.4; //std::max(*std::max_element(solution.begin(), solution.end()), 0.);
+	double y_min = -0.004; //0.0; //std::min(*std::min_element(solution.begin(), solution.end()), 0.);
 	
 	// left and right boundary of space_triangulation
 	double x_min = 0.;
@@ -1003,6 +1247,11 @@ void SpaceTime<dim>::run() {
 		std::cout
 				<< "-------------------------------------------------------------"
 				<< std::endl;
+				
+		// create output directory if necessary
+		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+		for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
+		  mkdir(dir, S_IRWXU);
 
 		// reset values from last refinement cycle
 		n_snapshots = 0;
@@ -1024,14 +1273,14 @@ void SpaceTime<dim>::run() {
 		VectorTools::project(space_dof_handler,
 				      constraints,
 				      QGauss<dim>(space_fe.degree + 1),
-				      InitialValues<dim>(),
+				      ZeroInitialValues<dim>(), //InitialValues<dim>(),
 				      initial_solution);
 				
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
 		    // create and solve linear system
 		    setup_system(slabs[k], k+1);
-		    assemble_system(slabs[k], k == 0);
+		    assemble_system(slabs[k], cycle, k == 0, k == 0);
 		    solve(k == 0);
 		    
 		    // output results as SVG or VTK files
