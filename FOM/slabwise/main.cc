@@ -241,9 +241,9 @@ public:
 private:
         void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
-	void assemble_system(std::shared_ptr<Slab> &slab);
+	void assemble_system(std::shared_ptr<Slab> &slab, bool assemble_matrix);
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab);
-	void solve();
+	void solve(bool invert);
 	void output_results(const unsigned int refinement_cycle);
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
@@ -259,6 +259,7 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseDirectUMFPACK A_direct;
 	Vector<double> solution;
 	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
@@ -365,7 +366,7 @@ void SpaceTime<1>::make_grids() {
 			  cell->face(face)->set_boundary_id(0);
 
 	// globally refine the grids
-	space_triangulation.refine_global(3);
+	space_triangulation.refine_global(3+5);
 	for (auto &slab : slabs)
 	  slab->time_triangulation.refine_global(0);
 }
@@ -442,7 +443,7 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 }
 
 template<int dim>
-void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
+void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, bool assemble_matrix) {
 	RightHandSide<dim> right_hand_side;
 
 	// space
@@ -507,7 +508,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 		    );
 		    
 		    // system matrix
-		    for (const unsigned int j : space_fe_values.dof_indices())
+		    if (assemble_matrix)
+		      for (const unsigned int j : space_fe_values.dof_indices())
 		      for (const unsigned int jj : time_fe_values.dof_indices())
 			cell_matrix(
 			  j + jj * space_dofs_per_cell,
@@ -528,18 +530,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 	    time_fe_face_values.reinit(time_cell);
 	    
 	    // first we assemble (A): (u_m^+,φ_m^+)_Ω
-	    for (const unsigned int q : space_fe_values.quadrature_point_indices())
-	      for (const unsigned int i : space_fe_values.dof_indices())
-		for (const unsigned int ii : time_fe_values.dof_indices())
-		  for (const unsigned int j : space_fe_values.dof_indices())
-		    for (const unsigned int jj : time_fe_values.dof_indices())
-		      cell_matrix(
-			j + jj * space_dofs_per_cell,
-			i + ii * space_dofs_per_cell
-		      ) += (
-			space_fe_values.shape_value(i, q) * time_fe_face_values.shape_value(ii, 0) * //  ϕ_{i,ii}(t_m^+, x_q)
-			space_fe_values.shape_value(j, q) * time_fe_face_values.shape_value(jj, 0)   //  ϕ_{j,jj}(t_m^+, x_q)
-		      ) * space_fe_values.JxW(q); 						//  d(x)
+	    if (assemble_matrix)
+	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
+		for (const unsigned int i : space_fe_values.dof_indices())
+		  for (const unsigned int ii : time_fe_values.dof_indices())
+		    for (const unsigned int j : space_fe_values.dof_indices())
+		      for (const unsigned int jj : time_fe_values.dof_indices())
+			cell_matrix(
+			  j + jj * space_dofs_per_cell,
+			  i + ii * space_dofs_per_cell
+			) += (
+			  space_fe_values.shape_value(i, q) * time_fe_face_values.shape_value(ii, 0) * //  ϕ_{i,ii}(t_m^+, x_q)
+			  space_fe_values.shape_value(j, q) * time_fe_face_values.shape_value(jj, 0)   //  ϕ_{j,jj}(t_m^+, x_q)
+			) * space_fe_values.JxW(q); 						//  d(x)
 	      
 	    // initial condition and jump terms
 	    if (time_cell->active_cell_index() == 0)
@@ -574,18 +577,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 	      
 	      // now we assemble (B): - (u_m^-,φ_m^+)_Ω
 	      // NOTE: cell_jump is a space-time cell matrix because we are using Gauss-Legendre quadrature in time
-	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
-		for (const unsigned int i : space_fe_values.dof_indices())
-		  for (const unsigned int ii : time_fe_values.dof_indices())
-		    for (const unsigned int j : space_fe_values.dof_indices())
-		      for (const unsigned int jj : time_fe_values.dof_indices())
-			cell_jump(
-			    j + jj * space_dofs_per_cell,
-			    i + ii * space_dofs_per_cell
-			  ) += (
-			    -1. * space_fe_values.shape_value(i, q) * time_prev_fe_face_values.shape_value(ii, 0) * // -ϕ_{i,ii}(t_m^-, x_q)
-			    space_fe_values.shape_value(j, q) * time_fe_face_values.shape_value(jj, 0)        	    //  ϕ_{j,jj}(t_m^+, x_q)
-			  ) * space_fe_values.JxW(q); 		      //  d(x)
+	      if (assemble_matrix)
+		for (const unsigned int q : space_fe_values.quadrature_point_indices())
+		  for (const unsigned int i : space_fe_values.dof_indices())
+		    for (const unsigned int ii : time_fe_values.dof_indices())
+		      for (const unsigned int j : space_fe_values.dof_indices())
+			for (const unsigned int jj : time_fe_values.dof_indices())
+			  cell_jump(
+			      j + jj * space_dofs_per_cell,
+			      i + ii * space_dofs_per_cell
+			    ) += (
+			      -1. * space_fe_values.shape_value(i, q) * time_prev_fe_face_values.shape_value(ii, 0) * // -ϕ_{i,ii}(t_m^-, x_q)
+			      space_fe_values.shape_value(j, q) * time_fe_face_values.shape_value(jj, 0)        	    //  ϕ_{j,jj}(t_m^+, x_q)
+			    ) * space_fe_values.JxW(q); 		      //  d(x)
 	    }
 	    
 	    // distribute local to global
@@ -596,17 +600,18 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 		system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
 		
 		// system matrix
-		for (const unsigned int j : space_fe_values.dof_indices())
-		  for (const unsigned int jj : time_fe_values.dof_indices())
-		    system_matrix.add(
-		      space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
-		      space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
-		      cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
-		    );
+		if (assemble_matrix)
+		  for (const unsigned int j : space_fe_values.dof_indices())
+		    for (const unsigned int jj : time_fe_values.dof_indices())
+		      system_matrix.add(
+			space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+			space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+			cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		      );
 	      }
 	     
 	    // distribute cell jump
-	    if (time_cell->active_cell_index() > 0)
+	    if (assemble_matrix && (time_cell->active_cell_index() > 0))
 	      for (const unsigned int i : space_fe_values.dof_indices())
 		for (const unsigned int ii : time_fe_values.dof_indices())
 		  for (const unsigned int j : space_fe_values.dof_indices())
@@ -669,9 +674,9 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab) {
 }
 
 template<int dim>
-void SpaceTime<dim>::solve() {
-	SparseDirectUMFPACK A_direct;
-	A_direct.initialize(system_matrix);
+void SpaceTime<dim>::solve(bool invert) {
+	if (invert)
+	  A_direct.initialize(system_matrix);
 	A_direct.vmult(solution, system_rhs);
 }
 
@@ -1026,8 +1031,8 @@ void SpaceTime<dim>::run() {
 		{
 		    // create and solve linear system
 		    setup_system(slabs[k], k+1);
-		    assemble_system(slabs[k]);
-		    solve();
+		    assemble_system(slabs[k], k == 0);
+		    solve(k == 0);
 		    
 		    // output results as SVG or VTK files
 		    output_results(cycle);
