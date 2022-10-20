@@ -261,7 +261,42 @@ double RightHandSideTwoSources<dim>::value(const Point<dim> &p,
 			value = 0.2;
 	if ((p[0] >= (6./8)) && (p[0] <=(7./8)))
 		if (int (std::floor(t)) % 2 != 0)
-			value = -0.2;
+			value = -0.5;
+	return value;
+}
+
+
+template<int dim>
+class RightHandSideMovingSource: public Function<dim> {
+public:
+	RightHandSideMovingSource() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideMovingSource<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1(4,1/2)
+	//			{0.0, if t in odd  intervall and x else
+	double value = 0;
+
+	if (t <= 2)
+		if(p[0] >= 0.1+t*0.4-0.05 && p[0] <= 0.1+t*0.4+0.05)
+			if (t <= 1)
+				value = 0.2;
+			else
+				value = -0.5;
+	if (t > 2)
+		if(p[0] >= 0.9-(t-2)*0.4-0.05 && p[0] <= 0.9-(t-2)*0.4+0.05)
+			if (t <= 3)
+				value = 1.0;
+			else
+				value = -0.75;
 	return value;
 }
 
@@ -448,7 +483,8 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	// other rhs
 //	RightHandSide<dim> right_hand_side;
 //	RightHandSideSingleSource<dim> right_hand_side;
-	RightHandSideTwoSources<dim> right_hand_side;
+//	RightHandSideTwoSources<dim> right_hand_side;
+	RightHandSideMovingSource<dim> right_hand_side;
 
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);

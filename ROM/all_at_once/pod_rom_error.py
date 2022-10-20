@@ -26,7 +26,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
             POD, S, _ = scipy.linalg.svd(bunch, full_matrices=False)
             r = 0
             # np.shape(S_k)[0])):
-            while ((np.dot(S[0:r], S[0:r])/total_energy <= energy_content) and (r <= 2)):
+            while ((np.dot(S[0:r], S[0:r])/total_energy <= energy_content) and (r <= bunch_size)):
                 r += 1
                 # print(r)
             singular_values = S[0:r]
@@ -34,11 +34,19 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
         else:
             M = np.dot(POD.T, bunch)
             P = bunch - np.dot(POD, M)
+    
             Q_p, R_p = scipy.linalg.qr(P, mode='economic')
-            S = np.diag(singular_values)
-            S0 = np.vstack((S, np.zeros((np.shape(R_p)[0], np.shape(S)[0]))))
+            Q_q = np.hstack((POD, Q_p))
+            
+            S0 = np.vstack((np.diag(singular_values), np.zeros(
+                (np.shape(R_p)[0], np.shape(singular_values)[0]))))
             MR_p = np.vstack((M, R_p))
             K = np.hstack((S0, MR_p))
+
+            if (np.linalg.norm(np.matmul(Q_q.T, Q_q)-np.eye(np.shape(Q_q)[1])) >= 1e-14):
+                Q_q, R_q = scipy.linalg.qr(Q_q, mode='economic')
+                K = np.matmul(R_q, K)
+
             U_k, S_k, _ = scipy.linalg.svd(K, full_matrices=False)
             Q = np.hstack((POD, Q_p))
             Q_q, _ = scipy.linalg.qr(Q, mode='economic')
@@ -202,6 +210,8 @@ for cycle in os.listdir(OUTPUT_PATH):
     print(
         f"To preserve {ENERGY_RATIO_THRESHOLD} of information we need {r} primal POD vector(s). (result: {eigen_values[:r].sum() / eigen_values.sum()} information).")
     print(
+        f"To preserve {ENERGY_RATIO_THRESHOLD} of information we need {POD.shape[1]} primal iPOD vector(s).")
+    print(
         f"To preserve {ENERGY_RATIO_THRESHOLD_DUAL} of information we need {r_dual} dual POD vector(s). (result: {dual_eigen_values[:r_dual].sum() / dual_eigen_values.sum()} information).")
 
     # -------------------------
@@ -212,7 +222,8 @@ for cycle in os.listdir(OUTPUT_PATH):
     dual_pod_basis = np.dot(np.dot(Y_dual, dual_eigen_vectors[:, :r_dual]), np.diag(
         1. / np.sqrt(dual_eigen_values[:r_dual])))
     # choose iSVD basis instead of correlation
-    pod_basis = POD_full
+    pod_basis = POD
+    r = POD.shape[1]
     colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
     # plot the POD basis
     if PLOTTING:
