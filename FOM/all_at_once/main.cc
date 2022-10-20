@@ -1109,7 +1109,7 @@ void SpaceTime<dim>::run() {
 		
 		// output solution to txt file
 		std::ofstream solution_out(output_dir + "solution.txt");
-		solution.print(solution_out, /*precision*/9);
+		solution.print(solution_out, /*precision*/16);
 		
 		// output results as SVG or VTK files
 		output_results(cycle); 

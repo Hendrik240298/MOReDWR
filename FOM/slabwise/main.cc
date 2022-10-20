@@ -374,12 +374,13 @@ public:
 private:
         void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
-	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab, bool assemble_matrix);
+	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab, bool assemble_matrix);
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab);
 	void solve(bool invert);
 	void output_results(const unsigned int refinement_cycle);
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
+	void print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number);
 	
 	// space
 	Triangulation<dim>            space_triangulation;		
@@ -590,7 +591,7 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 }
 
 template<int dim>
-void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab, bool assemble_matrix) {
+void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab, bool assemble_matrix) {
 	// dual rhs
 	DualRightHandSide<dim> dual_right_hand_side(end_time-start_time);
 
@@ -813,7 +814,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int c
 			cell_jump(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
 		      );
 		
-	     if (assemble_matrix && (time_cell->active_cell_index() == 1))
+	     if (assemble_matrix && (time_cell->active_cell_index() == 0))
 	      for (const unsigned int i : space_fe_values.dof_indices())
 		for (const unsigned int ii : time_fe_values.dof_indices())
 		  for (const unsigned int j : space_fe_values.dof_indices())
@@ -846,10 +847,10 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int c
 	  print_as_numpy_arrays_high_resolution(jump_matrix, jump_matrix_no_bc_out, /*precision*/16);
 	}
 	
-	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc.txt");
+	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	system_rhs.print(rhs_no_bc_out, /*precision*/16);
 	
-	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc.txt");
+	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
 	
 	if (!first_slab)
@@ -1233,6 +1234,43 @@ void SpaceTime<dim>::print_convergence_table() {
 }
 
 template<int dim>
+void SpaceTime<dim>::print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number)
+{ 
+  // space
+  std::vector<Point<dim>> space_support_points(space_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<dim,dim>(),                    
+    space_dof_handler,
+    space_support_points
+  ); 
+  
+  std::ofstream x_out(output_dir + "coordinates_x.txt");
+  x_out.precision(9);
+  x_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (auto point : space_support_points)
+      x_out << point[0] << ' ';
+  x_out << std::endl;
+
+  // time
+  std::vector<Point<1>> time_support_points(slab->time_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<1,1>(),                    
+    slab->time_dof_handler,
+    time_support_points
+  ); 
+  
+  std::ofstream t_out(output_dir + "coordinates_t_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+  t_out.precision(9);
+  t_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (auto point : time_support_points)
+      t_out << point[0] << ' ';
+  t_out << std::endl;
+}
+
+
+template<int dim>
 void SpaceTime<dim>::run() {
 	// create a coarse grid
 	make_grids();
@@ -1280,8 +1318,19 @@ void SpaceTime<dim>::run() {
 		{
 		    // create and solve linear system
 		    setup_system(slabs[k], k+1);
-		    assemble_system(slabs[k], cycle, k == 0, k == 0);
+		    assemble_system(slabs[k], k, cycle, k == 0, k == 0);
 		    solve(k == 0);
+
+		    // evaluate primal FEM solution in mean value goal functional
+		    //double goal_functional = compute_goal_functional();
+		    //std::cout << "J(u_h) = " << goal_functional << std::endl;
+			
+		    // output Space-Time DoF coordinates
+		    print_coordinates(slabs[k], output_dir, k);
+			
+		    // output solution to txt file
+	            std::ofstream solution_out(output_dir + "solution_" + Utilities::int_to_string(k, 5) + ".txt");
+	            solution.print(solution_out, /*precision*/16);
 		    
 		    // output results as SVG or VTK files
 		    output_results(cycle);
