@@ -6,7 +6,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 import os
 
-PLOTTING = True
+PLOTTING = False #True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 OUTPUT_PATH = "../../FOM/all_at_once/output/dim=1/"

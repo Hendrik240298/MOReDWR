@@ -6,7 +6,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 import os
 
-PLOTTING = True
+PLOTTING = False #True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 OUTPUT_PATH = "../../FOM/slabwise/output/dim=1/"
@@ -68,7 +68,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         OUTPUT_PATH + cycle + "/jump_matrix_no_bc.txt")
     jump_matrix_no_bc = scipy.sparse.csr_matrix(
         (data, (row.astype(int), column.astype(int))))
-    
+
     rhs_no_bc = []
     for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle) if "dual" not in f and "rhs_no_bc" in f]):
         rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
@@ -138,14 +138,25 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.colorbar()
         plt.show()
 
-    continue
-  
     # ----------
     # dual solve
-    # TODO
+    last_dual_solution = np.zeros_like(dual_rhs_no_bc[0])
+    dual_solutions = []
+    for i in list(range(n_slabs))[::-1]:
+        # creating dual rhs and applying BC to it
+        dual_rhs = dual_rhs_no_bc[i].copy()
+        dual_rhs -= jump_matrix_no_bc.T.dot(last_dual_solution)
+        for row in boundary_ids:
+            dual_rhs[row] = 0.
+
+        dual_solutions.append(
+            scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs))
+
+        last_dual_solution = dual_solutions[-1]
 
     # dual solution
-    dual_solution = scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
+    dual_solutions = dual_solutions[::-1]
+    dual_solution = np.hstack(dual_solutions)
     if PLOTTING:
         grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
         dual_grid = scipy.interpolate.griddata(
@@ -158,7 +169,9 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.show()
 
     # goal functionals
-    J = {"u_h": np.dot(dual_rhs_no_bc, primal_solution), "u_r": []}
+    J = {"u_h": 0., "u_r": []}
+    for i in range(n_slabs):
+        J["u_h"] += np.dot(primal_solutions[i], dual_rhs_no_bc[i])
 
     # -------------- #
     # PRIMAL POD-ROM #
@@ -233,7 +246,7 @@ for cycle in os.listdir(OUTPUT_PATH):
 
     # desired energy ratio
     ENERGY_RATIO_THRESHOLD = 0.9999
-    ENERGY_RATIO_THRESHOLD_DUAL = 0.9999999
+    ENERGY_RATIO_THRESHOLD_DUAL = 0.99999999
 
     # determine number of POD basis vectors needed to preserve certain ratio of energy
     r = np.sum([(eigen_values[:i].sum() / eigen_values.sum()) <
@@ -275,40 +288,50 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.title("Dual POD vectors")
         plt.show()
 
+    time_dofs_per_time_interval = int(n_dofs["time"] / n_slabs)
+    dofs_per_time_interval = time_dofs_per_time_interval * n_dofs["space"]
+
     # change from the FOM to the POD basis
     space_time_pod_basis = scipy.sparse.block_diag(
-        [pod_basis]*n_dofs["time"])  # NOTE: this might be a bit inefficient
+        [pod_basis]*time_dofs_per_time_interval)
     dual_space_time_pod_basis = scipy.sparse.block_diag(
-        [dual_pod_basis]*n_dofs["time"])
+        [dual_pod_basis]*time_dofs_per_time_interval)
     # if PLOTTING:
     #plt.spy(space_time_pod_basis, markersize=2)
     # plt.show()
 
     reduced_system_matrix = space_time_pod_basis.T.dot(
         matrix_no_bc.dot(space_time_pod_basis))
-    reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc)
+    reduced_jump_matrix = space_time_pod_basis.T.dot(
+        jump_matrix_no_bc.dot(space_time_pod_basis))
 
-    reduced_dual_matrix = dual_space_time_pod_basis.T.dot(
-        matrix_no_bc.T.dot(dual_space_time_pod_basis))
-    reduced_dual_rhs = dual_space_time_pod_basis.T.dot(dual_rhs_no_bc)
+    # ----------------
+    # primal ROM solve
+    reduced_solutions = []
+    projected_reduced_solutions = []
+    temporal_interval_error = []
+    for i in range(n_slabs):
+        reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i])
+        if len(reduced_solutions):
+            reduced_rhs -= reduced_jump_matrix.dot(reduced_solutions[-1])
+        reduced_solutions.append(scipy.sparse.linalg.spsolve(
+            reduced_system_matrix, reduced_rhs))
+        projected_reduced_solutions.append(
+            space_time_pod_basis.dot(reduced_solutions[-1]))
 
-    # solve reduced linear system
-    reduced_solution = scipy.sparse.linalg.spsolve(
-        reduced_system_matrix, reduced_rhs)
-    reduced_dual_solution = scipy.sparse.linalg.spsolve(
-        reduced_dual_matrix, reduced_dual_rhs)
-    # print(reduced_solution.shape)
-    #true_reduced_solution = space_time_pod_basis.T.dot(primal_solution)
-    # print(true_reduced_solution.reshape(-1,r)[:,0:1])
-    # print(scipy.sparse.block_diag([pod_basis[:,0:1]]*n_dofs["time"]).T.dot(primal_solution))
-    # print(space_time_pod_basis.shape)
-    # print(true_reduced_solution.shape)
-    #print(f"Reduced solution is wrong by a factor of {reduced_solution[0]/true_reduced_solution[0]}")
+        # temporal localization of ROM error (using FOM dual solution)
+        tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i]
+        if len(projected_reduced_solutions) > 1:
+            tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i-1])
+        temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
 
-    projected_reduced_solution = space_time_pod_basis.dot(reduced_solution)
-    projected_reduced_dual_solution = dual_space_time_pod_basis.dot(
-        reduced_dual_solution)
-    J["u_r"].append(np.dot(dual_rhs_no_bc, projected_reduced_solution))
+    projected_reduced_solution = np.hstack(projected_reduced_solutions)
+
+    J_r = 0.
+    for i in range(n_slabs):
+        J_r += np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i])
+    J["u_r"].append(J_r)
+
     print("J(u_h) =", J["u_h"])
     # TODO: in the future compare J(u_r) for different values of r
     print("J(u_r) =", J["u_r"][-1])
@@ -334,19 +357,8 @@ for cycle in os.listdir(OUTPUT_PATH):
         axs[1].set_ylabel("$x$")
         axs[1].set_title("$u_h - u_r$")
         fig.colorbar(im1, ax=axs[1])
+
         # Plot 3: temporal error
-        # temporal localization of ROM error (using FOM dual solution)
-        temporal_interval_error = []
-        tmp = -matrix_no_bc.dot(projected_reduced_solution) + rhs_no_bc
-        # WARNING: hardcoding dG(1) time discretization here
-        dofs_per_time_interval = 2 * n_dofs["space"]
-        i = 0
-        while (i != n_dofs["time"] * n_dofs["space"]):
-            temporal_interval_error.append(
-                dual_solution[i:i +
-                              dofs_per_time_interval].dot(tmp[i:i+dofs_per_time_interval])
-            )
-            i += dofs_per_time_interval
         # WARNING: hardcoding end time T = 4.
         time_step_size = 4.0 / (n_dofs["time"] / 2)
         xx, yy = [], []
@@ -361,6 +373,29 @@ for cycle in os.listdir(OUTPUT_PATH):
         axs[2].set_title("temporal error estimate")
         plt.show()
 
+    reduced_dual_matrix = dual_space_time_pod_basis.T.dot(
+        matrix_no_bc.T.dot(dual_space_time_pod_basis))
+    reduced_dual_jump_matrix = dual_space_time_pod_basis.T.dot(
+        jump_matrix_no_bc.T.dot(dual_space_time_pod_basis))
+
+    # --------------
+    # dual ROM solve
+    reduced_dual_solutions = []
+    projected_reduced_dual_solutions = []
+    for i in list(range(n_slabs))[::-1]:
+        reduced_dual_rhs = dual_space_time_pod_basis.T.dot(dual_rhs_no_bc[i])
+        if len(reduced_dual_solutions):
+            reduced_dual_rhs -= reduced_dual_jump_matrix.dot(
+                reduced_dual_solutions[-1])
+        reduced_dual_solutions.append(scipy.sparse.linalg.spsolve(
+            reduced_dual_matrix, reduced_dual_rhs))
+        projected_reduced_dual_solutions.append(
+            dual_space_time_pod_basis.dot(reduced_dual_solutions[-1]))
+
+    projected_reduced_dual_solutions = projected_reduced_dual_solutions[::-1]
+    projected_reduced_dual_solution = np.hstack(
+        projected_reduced_dual_solutions)
+
     # ----------------
     # error estimation
     true_error = J['u_h']-J['u_r'][-1]
@@ -368,55 +403,25 @@ for cycle in os.listdir(OUTPUT_PATH):
     # using FOM dual solution
     print("\nUsing z_h:")
     print("----------")
-    error_estimator = -dual_solution.dot(matrix_no_bc.dot(
-        projected_reduced_solution)) + dual_solution.dot(rhs_no_bc)
+    error_estimator = sum(temporal_interval_error)
     print(f"True error:        {true_error}")
     print(f"Estimated error:   {error_estimator}")
     print(f"Effectivity index: {abs(true_error / error_estimator)}")
 
     # using ROM dual solution
+    temporal_interval_error_cheap = []
+    for i in range(n_slabs):
+        # temporal localization of ROM error (using ROM dual solution)
+        tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i]
+        if i >= 1:
+            tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i-1])
+        temporal_interval_error_cheap.append(np.dot(projected_reduced_dual_solutions[i], tmp))
+    
+    
     print("\nUsing z_r:")
     print("----------")
-    error_estimator_cheap = -projected_reduced_dual_solution.dot(matrix_no_bc.dot(
-        projected_reduced_solution)) + projected_reduced_dual_solution.dot(rhs_no_bc)
-    #error_estimator_cheap = 0.5 * error_estimator_cheap + 0.5 * (-projected_reduced_solution.dot(matrix_no_bc.T.dot(projected_reduced_dual_solution)) + projected_reduced_solution.dot(dual_rhs_no_bc))
-    #error_estimator_cheap = 0.5 * error_estimator_cheap + 0.5 * (-primal_solution.dot(matrix_no_bc.T.dot(projected_reduced_dual_solution)) + primal_solution.dot(dual_rhs_no_bc))
+    error_estimator_cheap = sum(temporal_interval_error_cheap)
     print(f"True error:              {true_error}")
     print(f"Cheap estimated error:   {error_estimator_cheap}")
     print(
         f"Effectivity index:       {abs(true_error / error_estimator_cheap)}")
-
-    """
-    reduced_system_matrix = scipy.sparse.dok_matrix(
-        (r*n_dofs["time"], r*n_dofs["time"]), dtype=np.float32)
-    reduced_rhs = np.zeros(r*n_dofs["time"], dtype=np.float32)
-
-    #system_matrix_block = matrix_no_bc.tobsr(blocksize=(n_dofs["space"],n_dofs["space"]),copy=False) -> rather e.g. 2 * n_dofs["space"] as block-size
-
-    # TODO: do we want to use bsr_matrices?!
-    # TODO: parallel reduction of ST-system matrix can be done similar to parallel assembly in https://github.com/mathmerizing/MultigridPython/blob/master/assembly.py
-
-    plt.spy(matrix_no_bc, markersize=2)
-    plt.show()
-
-    # TODO: reduction of space-time system matrix
-    # TODO: think about the fact that blocks are e.g. of size 2 * n_dofs["space"] --> smarter way would be to consider temporal sparsity pattern and then reduce for each entry in temporal sparsity pattern
-    primal_nonzero = matrix_no_bc.nonzero()
-    index = 0
-    for ii in range(n_dofs["time"]):
-        matrix_time_dof = scipy.sparse.dok_matrix(
-            (n_dofs["space"], n_dofs["space"]), dtype=np.float32)
-        matrix_jump = scipy.sparse.dok_matrix(
-            (n_dofs["space"], n_dofs["space"]), dtype=np.float32)
-
-        x = primal_nonzero[0][index]
-        while x < (ii+1)*n_dofs["space"]:
-            y = primal_nonzero[1][index]
-            if y >= ii * n_dofs["space"]:
-                print(x-ii*n_dofs["space"])
-                print(y-ii*n_dofs["space"])
-                matrix_time_dof[x-ii*n_dofs["space"],y-ii*n_dofs["space"]] = matrix_no_bc[x, y]
-            else:
-                matrix_jump[x-ii*n_dofs["space"],y-(ii-1)*n_dofs["space"]] = matrix_no_bc[x, y]
-            index += 1
-    """
