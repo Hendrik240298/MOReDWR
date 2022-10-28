@@ -1,4 +1,4 @@
-/* ---------------------------------------------------------------------
+#/* ---------------------------------------------------------------------
  * The space time finite elements code has been based on Step-3
  * of the deal.II tutorial programs.
  *
@@ -1396,10 +1396,10 @@ int main() {
 
 		// run the simulation
 		SpaceTime<1> space_time_problem(
-		  1,                // s ->  spatial FE degree
+		  5,                // s ->  spatial FE degree
 		  {1,1,1,1},        // r -> temporal FE degree
 		  {0.,1.,2.,3.,4.}, // time points 
-		  5,                // max_n_refinement_cycles,
+		  10,                // max_n_refinement_cycles,
 		  true,             // refine_space
 		  true,             // refine_time
 		  true              // split_slabs
