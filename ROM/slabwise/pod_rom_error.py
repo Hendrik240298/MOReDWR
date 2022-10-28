@@ -389,6 +389,8 @@ for cycle in os.listdir(OUTPUT_PATH):
     singular_values = np.empty([0, 0])
 
     for slab_step in range(
+            #1):
+            ## onyl use first solution of slab since we assume that solutions are quite similar
             int(primal_solutions[0].shape[0] / n_dofs["space"])):
         pod_basis, bunch, singular_values, total_energy = iPOD(pod_basis, bunch, singular_values, primal_solutions[0][range(
             slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy)
