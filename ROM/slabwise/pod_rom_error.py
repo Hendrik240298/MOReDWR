@@ -15,8 +15,8 @@ OUTPUT_PATH = "../../FOM/slabwise/output/dim=1/"
 
 
 def iPOD(POD, bunch, singular_values, snapshot, total_energy):
-    bunch_size = 1
-    energy_content = 1  # 0.9999
+    bunch_size = 2
+    energy_content = 1 -1e-8 # 0.9999
     row, col_POD = POD.shape
 
     if (bunch.shape[1] == 0):
@@ -26,7 +26,6 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
     _, col = bunch.shape
 
     total_energy += np.dot(snapshot, snapshot)
-
     if (col == bunch_size):
         if (col_POD == 0):
             POD, S, _ = scipy.linalg.svd(bunch, full_matrices=False)
@@ -59,7 +58,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
             Q = np.hstack((POD, Q_p))
             Q_q, _ = scipy.linalg.qr(Q, mode='economic')
 
-            r = 0
+            r = col_POD + 1 #0
             while ((np.dot(S_k[0:r], S_k[0:r]) / total_energy <=
                    energy_content) and (r < np.shape(S_k)[0])):
                 r += 1
@@ -210,7 +209,9 @@ for cycle in os.listdir(OUTPUT_PATH):
 
     # %% goal functionals
     J = {"u_h": 0., "u_r": []}
+    J_h_t = np.empty([n_slabs,1])
     for i in range(n_slabs):
+        J_h_t[i] = np.dot(primal_solutions[i], dual_rhs_no_bc[i])
         J["u_h"] += np.dot(primal_solutions[i], dual_rhs_no_bc[i])
 
     # ---------------- #
@@ -359,12 +360,14 @@ for cycle in os.listdir(OUTPUT_PATH):
             primal_matrix, primal_rhs)
         singular_values_tmp = singular_values
         total_energy_tmp = total_energy
+        bunch_tmp = np.empty([0, 0])
         if ((
                 projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer()):
-            ## onyl use first solution of slab since we assume that solutions are quite similar
+            # onyl use first solution of slab since we assume that solutions are quite similar
             for slab_step in range(
-                    1): #int(projected_reduced_solution.shape[0] / n_dofs["space"])):
-                pod_basis, _, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch, singular_values_tmp, projected_reduced_solution[range(
+                    #1):  
+                    int(projected_reduced_solution.shape[0] / n_dofs["space"])):
+                pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, projected_reduced_solution[range(
                     slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp)
         else:
             print(
@@ -389,20 +392,19 @@ for cycle in os.listdir(OUTPUT_PATH):
     singular_values = np.empty([0, 0])
 
     for slab_step in range(
-            #1):
-            ## onyl use first solution of slab since we assume that solutions are quite similar
+            # 1):
+            # onyl use first solution of slab since we assume that solutions are quite similar
             int(primal_solutions[0].shape[0] / n_dofs["space"])):
         pod_basis, bunch, singular_values, total_energy = iPOD(pod_basis, bunch, singular_values, primal_solutions[0][range(
             slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy)
 
     # plot the initial POD basis
-
     for i in range(pod_basis.shape[1]):
         plt.plot(coordinates_x,
-                  pod_basis[:,
-                            i],
-                  color=colors[i % len(colors)],
-                  label=str(i + 1))
+                 pod_basis[:,
+                           i],
+                 color=colors[i % len(colors)],
+                 label=str(i + 1))
     plt.legend()
     plt.xlabel("$x$")
     plt.title("DEBUG: Initial POD vectors")
@@ -429,7 +431,8 @@ for cycle in os.listdir(OUTPUT_PATH):
     projected_reduced_solutions = []
     temporal_interval_error = []
     temporal_interval_error_incidactor = []
-    tol = 1e-8/(n_slabs)
+    tol =  5e-4/(n_slabs)
+    tol_rel = 1e-2
     print("tol = " + str(tol))
     start_execution = time.time()
     for i in range(n_slabs):
@@ -455,7 +458,9 @@ for cycle in os.listdir(OUTPUT_PATH):
         temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
         temporal_interval_error_incidactor.append(0)
         # or  np.abs(temporal_interval_error[-1]/temporal_interval_error[i-1]):
-        if np.abs(temporal_interval_error[-1]) > tol:
+            
+        # if np.abs(temporal_interval_error[-1]) > tol:
+        if np.abs(temporal_interval_error[-1])/np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i]) > tol_rel:
             temporal_interval_error_incidactor[-1] = 1
             pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
                 pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[i - 1])
@@ -482,7 +487,9 @@ for cycle in os.listdir(OUTPUT_PATH):
     projected_reduced_solution = np.hstack(projected_reduced_solutions)
 
     J_r = 0.
+    J_r_t = np.empty([n_slabs,1])
     for i in range(n_slabs):
+        J_r_t[i] = np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i])
         J_r += np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i])
     J["u_r"].append(J_r)
 
@@ -547,6 +554,14 @@ for cycle in os.listdir(OUTPUT_PATH):
         axs[2].set_title("temporal error estimate")
         plt.show()
 
+        plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_r_t)
+        plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_h_t,'r')
+        plt.xlabel("$t$")
+        plt.ylabel("$J(u)$")
+        plt.title("temporal evaluation of cost funtional")
+        plt.show()
+        
+        
     reduced_dual_matrix = dual_space_time_pod_basis.T.dot(
         matrix_no_bc.T.dot(dual_space_time_pod_basis))
     reduced_dual_jump_matrix = dual_space_time_pod_basis.T.dot(

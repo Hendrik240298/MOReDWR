@@ -323,6 +323,40 @@ double RightHandSideTwoSources<dim>::value(const Point<dim> &p,
 
 
 template<int dim>
+class RightHandSideMovingSource: public Function<dim> {
+public:
+	RightHandSideMovingSource() :
+			Function<dim>() {
+	}
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const;
+};
+
+template<int dim>
+double RightHandSideMovingSource<dim>::value(const Point<dim> &p,
+		const unsigned int /*component*/) const {
+	Assert(dim == 1, ExcInternalError());
+	const double t = this->get_time();
+	// f(t,x) = {0.2, if t in even intervall and x in (1(4,1/2)
+	//			{0.0, if t in odd  intervall and x else
+	double value = 0;
+
+	if (t <= 2)
+		if(p[0] >= 0.1+t*0.4-0.05 && p[0] <= 0.1+t*0.4+0.05)
+			if (t <= 1)
+				value = 0.2;
+			else
+				value = -0.5;
+	if (t > 2)
+		if(p[0] >= 0.9-(t-2)*0.4-0.05 && p[0] <= 0.9-(t-2)*0.4+0.05)
+			if (t <= 3)
+				value = 1.0;
+			else
+				value = -0.75;
+	return value;
+}
+
+template<int dim>
 class DualRightHandSide: public Function<dim> {
 public:
 	DualRightHandSide(double _T) :
@@ -503,7 +537,7 @@ void SpaceTime<1>::make_grids() {
 			  cell->face(face)->set_boundary_id(0);
 
 	// globally refine the grids
-	space_triangulation.refine_global(3);
+	space_triangulation.refine_global(5);
 	for (auto &slab : slabs)
 	  slab->time_triangulation.refine_global(0);
 }
@@ -599,7 +633,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 //	RightHandSide<dim> right_hand_side;
 //	RightHandSideSingleSource<dim> right_hand_side;
 	RightHandSideTwoSources<dim> right_hand_side;
-
+//	RightHandSideMovingSource<dim> right_hand_side;
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);
 	FEValues<dim> space_fe_values(space_fe, space_quad_formula,
@@ -1396,7 +1430,7 @@ int main() {
 
 		// run the simulation
 		SpaceTime<1> space_time_problem(
-		  5,                // s ->  spatial FE degree
+		  1,                // s ->  spatial FE degree
 		  {1,1,1,1},        // r -> temporal FE degree
 		  {0.,1.,2.,3.,4.}, // time points 
 		  10,                // max_n_refinement_cycles,
