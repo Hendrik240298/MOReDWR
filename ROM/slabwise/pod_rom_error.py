@@ -55,8 +55,8 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
                 K = np.matmul(R_q, K)
 
             U_k, S_k, _ = scipy.linalg.svd(K, full_matrices=False)
-            Q = np.hstack((POD, Q_p))
-            Q_q, _ = scipy.linalg.qr(Q, mode='economic')
+            # Q = np.hstack((POD, Q_p))
+            # Q_q, _ = scipy.linalg.qr(Q, mode='economic')
 
             r = col_POD + 1 #0
             while ((np.dot(S_k[0:r], S_k[0:r]) / total_energy <=
@@ -213,7 +213,8 @@ for cycle in os.listdir(OUTPUT_PATH):
     for i in range(n_slabs):
         J_h_t[i] = np.dot(primal_solutions[i], dual_rhs_no_bc[i])
         J["u_h"] += np.dot(primal_solutions[i], dual_rhs_no_bc[i])
-
+        
+    colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
     # ---------------- #
     #%% PRIMAL POD-ROM #
     # ---------------- #
@@ -228,118 +229,120 @@ for cycle in os.listdir(OUTPUT_PATH):
     # ------------------
     # correlation matrix
     # TODO: include mass matrix
-    correlation_matrix = np.dot(Y.T, Y)
-    dual_correlation_matrix = np.dot(Y_dual.T, Y_dual)
-    assert correlation_matrix.shape == (
-        n_dofs["time"], n_dofs["time"]), f"Matrix should be of #DoFs(time) shape"
+    # correlation_matrix = np.dot(Y.T, Y)
+    # dual_correlation_matrix = np.dot(Y_dual.T, Y_dual)
+    # assert correlation_matrix.shape == (
+    #     n_dofs["time"], n_dofs["time"]), f"Matrix should be of #DoFs(time) shape"
 
-    # -----------------------------------------
-    # compute eigenvalues of correlation matrix
-    eigen_values, eigen_vectors = np.linalg.eig(correlation_matrix)
-    dual_eigen_values, dual_eigen_vectors = np.linalg.eig(
-        dual_correlation_matrix)
+    # # -----------------------------------------
+    # # compute eigenvalues of correlation matrix
+    # eigen_values, eigen_vectors = np.linalg.eig(correlation_matrix)
+    # dual_eigen_values, dual_eigen_vectors = np.linalg.eig(
+    #     dual_correlation_matrix)
 
-    # ignore the complex part of the eigen values and eigen vectors
-    eigen_values, eigen_vectors = eigen_values.astype(
-        'float64'), eigen_vectors.astype('float64')
-    dual_eigen_values, dual_eigen_vectors = dual_eigen_values.astype(
-        'float64'), dual_eigen_vectors.astype('float64')
+    # # ignore the complex part of the eigen values and eigen vectors
+    # eigen_values, eigen_vectors = eigen_values.astype(
+    #     'float64'), eigen_vectors.astype('float64')
+    # dual_eigen_values, dual_eigen_vectors = dual_eigen_values.astype(
+    #     'float64'), dual_eigen_vectors.astype('float64')
+    
+    dual_pod_basis, dual_eigen_values, _= scipy.linalg.svd(Y_dual, full_matrices=False)
+    dual_eigen_values == np.sqrt(dual_eigen_values)
+    # # sort the eigenvalues in descending order
+    # eigen_values, eigen_vectors = eigen_values[eigen_values.argsort(
+    # )[::-1]], eigen_vectors[eigen_values.argsort()[::-1]]
+    # dual_eigen_values, dual_eigen_vectors = dual_eigen_values[dual_eigen_values.argsort(
+    # )[::-1]], dual_eigen_vectors[eigen_values.argsort()[::-1]]
 
-    # sort the eigenvalues in descending order
-    eigen_values, eigen_vectors = eigen_values[eigen_values.argsort(
-    )[::-1]], eigen_vectors[eigen_values.argsort()[::-1]]
-    dual_eigen_values, dual_eigen_vectors = dual_eigen_values[dual_eigen_values.argsort(
-    )[::-1]], dual_eigen_vectors[eigen_values.argsort()[::-1]]
-
-    POD_full, singular_values_test, _ = scipy.linalg.svd(
-        Y, full_matrices=False)
-    POD_full = POD_full[:, 0:np.shape(singular_values)[0]]
+    # POD_full, singular_values_test, _ = scipy.linalg.svd(
+    #     Y, full_matrices=False)
+    # POD_full = POD_full[:, 0:np.shape(singular_values)[0]]
     # plot eigen value decay
-    if PLOTTING:
-        plt.plot(range(1,
-                       min(n_dofs["space"],
-                           n_dofs["time"]) + 1),
-                 eigen_values,
-                 label="correlation matrix")
-        plt.plot(
-            range(
-                1,
-                np.shape(singular_values)[0] +
-                1),
-            np.power(
-                singular_values,
-                2),
-            label="iSVD")
-        plt.plot(range(1,
-                       np.shape(singular_values)[0] + 1),
-                 np.power(singular_values_test[0:np.shape(singular_values)[0]],
-                          2),
-                 label="SVD")
-        plt.legend()
-        plt.yscale("log")
-        plt.xlabel("index")
-        plt.ylabel("eigen value")
-        plt.title("Eigenvalues of correlation matrix")
-        plt.show()
+    # if PLOTTING:
+    #     plt.plot(range(1,
+    #                    min(n_dofs["space"],
+    #                        n_dofs["time"]) + 1),
+    #              eigen_values,
+    #              label="correlation matrix")
+    #     plt.plot(
+    #         range(
+    #             1,
+    #             np.shape(singular_values)[0] +
+    #             1),
+    #         np.power(
+    #             singular_values,
+    #             2),
+    #         label="iSVD")
+    #     plt.plot(range(1,
+    #                    np.shape(singular_values)[0] + 1),
+    #              np.power(singular_values_test[0:np.shape(singular_values)[0]],
+    #                       2),
+    #              label="SVD")
+    #     plt.legend()
+    #     plt.yscale("log")
+    #     plt.xlabel("index")
+    #     plt.ylabel("eigen value")
+    #     plt.title("Eigenvalues of correlation matrix")
+    #     plt.show()
 
-        plt.plot(
-            range(
-                1, min(
-                    n_dofs["space"], n_dofs["time"]) + 1), dual_eigen_values)
-        plt.yscale("log")
-        plt.xlabel("index")
-        plt.ylabel("eigen value")
-        plt.title("Dual eigenvalues of correlation matrix")
-        plt.show()
+    #     plt.plot(
+    #         range(
+    #             1, min(
+    #                 n_dofs["space"], n_dofs["time"]) + 1), dual_eigen_values)
+    #     plt.yscale("log")
+    #     plt.xlabel("index")
+    #     plt.ylabel("eigen value")
+    #     plt.title("Dual eigenvalues of correlation matrix")
+    #     plt.show()
 
     # desired energy ratio
     ENERGY_RATIO_THRESHOLD = 0.9999
     ENERGY_RATIO_THRESHOLD_DUAL = 0.99999999
 
-    # determine number of POD basis vectors needed to preserve certain ratio
-    # of energy
-    r = np.sum([(eigen_values[:i].sum() / eigen_values.sum()) <
-               ENERGY_RATIO_THRESHOLD for i in range(n_dofs["time"])])
+    # # determine number of POD basis vectors needed to preserve certain ratio
+    # # of energy
+    # r = np.sum([(eigen_values[:i].sum() / eigen_values.sum()) <
+    #            ENERGY_RATIO_THRESHOLD for i in range(n_dofs["time"])])
     # FOR DEBUGGING: r = 2
     r_dual = np.sum([(dual_eigen_values[:i].sum() / dual_eigen_values.sum()) <
                      ENERGY_RATIO_THRESHOLD_DUAL for i in range(n_dofs["time"])])
 
-    print(
-        f"To preserve {ENERGY_RATIO_THRESHOLD} of information we need {r} primal POD vector(s). (result: {eigen_values[:r].sum() / eigen_values.sum()} information).")
-    print(
-        f"To preserve {ENERGY_RATIO_THRESHOLD_DUAL} of information we need {r_dual} dual POD vector(s). (result: {dual_eigen_values[:r_dual].sum() / dual_eigen_values.sum()} information).")
+    # print(
+    #     f"To preserve {ENERGY_RATIO_THRESHOLD} of information we need {r} primal POD vector(s). (result: {eigen_values[:r].sum() / eigen_values.sum()} information).")
+    # print(
+    #     f"To preserve {ENERGY_RATIO_THRESHOLD_DUAL} of information we need {r_dual} dual POD vector(s). (result: {dual_eigen_values[:r_dual].sum() / dual_eigen_values.sum()} information).")
 
-    # -------------------------
-    # compute POD basis vectors
-    pod_basis = np.dot(np.dot(Y, eigen_vectors[:, :r]), np.diag(
-        1. / np.sqrt(eigen_values[:r])))
+    # # -------------------------
+    # # compute POD basis vectors
+    # pod_basis = np.dot(np.dot(Y, eigen_vectors[:, :r]), np.diag(
+    #     1. / np.sqrt(eigen_values[:r])))
 
-    dual_pod_basis = np.dot(np.dot(Y_dual, dual_eigen_vectors[:, :r_dual]), np.diag(
-        1. / np.sqrt(dual_eigen_values[:r_dual])))
-    # choose iSVD basis instead of correlation
-    pod_basis = POD
-    r = POD.shape[1]
-    colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
-    # plot the POD basis
-    if PLOTTING:
-        for i in range(r):
-            plt.plot(coordinates_x,
-                     pod_basis[:,
-                               i],
-                     color=colors[i % len(colors)],
-                     label=str(i + 1))
-        plt.legend()
-        plt.xlabel("$x$")
-        plt.title("Primal POD vectors")
-        plt.show()
+    # dual_pod_basis = np.dot(np.dot(Y_dual, dual_eigen_vectors[:, :r_dual]), np.diag(
+    #     1. / np.sqrt(dual_eigen_values[:r_dual])))
+    # # choose iSVD basis instead of correlation
+    # pod_basis = POD
+    # r = POD.shape[1]
+    # colors = ["red", "blue", "green", "purple", "orange", "pink", "black"]
+    # # plot the POD basis
+    # if PLOTTING:
+    #     for i in range(r):
+    #         plt.plot(coordinates_x,
+    #                  pod_basis[:,
+    #                            i],
+    #                  color=colors[i % len(colors)],
+    #                  label=str(i + 1))
+    #     plt.legend()
+    #     plt.xlabel("$x$")
+    #     plt.title("Primal POD vectors")
+    #     plt.show()
 
-        for i in range(r_dual):
-            plt.plot(coordinates_x, dual_pod_basis[:, i], color=colors[i % len(
-                colors)], label=str(i + 1))
-        plt.legend()
-        plt.xlabel("$x$")
-        plt.title("Dual POD vectors")
-        plt.show()
+    #     for i in range(r_dual):
+    #         plt.plot(coordinates_x, dual_pod_basis[:, i], color=colors[i % len(
+    #             colors)], label=str(i + 1))
+    #     plt.legend()
+    #     plt.xlabel("$x$")
+    #     plt.title("Dual POD vectors")
+    #     plt.show()
 
     time_dofs_per_time_interval = int(n_dofs["time"] / n_slabs)
     dofs_per_time_interval = time_dofs_per_time_interval * n_dofs["space"]
@@ -434,6 +437,7 @@ for cycle in os.listdir(OUTPUT_PATH):
     tol =  5e-4/(n_slabs)
     tol_rel = 1e-2
     print("tol = " + str(tol))
+    
     start_execution = time.time()
     for i in range(n_slabs):
         reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i])
@@ -481,6 +485,7 @@ for cycle in os.listdir(OUTPUT_PATH):
     execution_time_ROM = end_execution - start_execution
     print("FOM time:   " + str(execution_time_FOM))
     print("ROM time:   " + str(execution_time_ROM))
+    print("speedup:    " + str(execution_time_FOM/execution_time_ROM))
     print("Size ROM:   " + str(pod_basis.shape[1]))
     print("FOM solves: " + str(np.sum(temporal_interval_error_incidactor)
                                ) + " / " + str(len(temporal_interval_error_incidactor)))
