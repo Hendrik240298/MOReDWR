@@ -11,7 +11,7 @@ import time
 PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
-CASE = "moving"    ## "two" or "moving"
+CASE = "two"    ## "two" or "moving"
 OUTPUT_PATH = "../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
 
@@ -465,7 +465,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         # or  np.abs(temporal_interval_error[-1]/temporal_interval_error[i-1]):
             
         # if np.abs(temporal_interval_error[-1]) > tol:
-        if np.abs(temporal_interval_error[-1])/np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i]) > tol_rel:
+        if np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[i], dual_rhs_no_bc[i])+temporal_interval_error[-1]) > tol_rel:
             temporal_interval_error_incidactor[-1] = 1
             pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
                 pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[i - 1])
@@ -573,7 +573,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.legend()
        # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
         plt.xlabel('$t \; [$s$]$')
-        plt.ylabel("$J(u)$")
+        plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{Q_l}$")
         plt.yscale("log")
         plt.xlim([0,n_slabs*time_step_size])
         #plt.title("temporal evaluation of cost funtional")
@@ -590,7 +590,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         plt.legend()
         plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
         plt.xlabel('$t \; [$s$]$')
-        plt.ylabel("$J(u)$")
+        plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
         plt.xlim([0,n_slabs*time_step_size])
         #plt.title("temporal evaluation of cost funtional")
         plt.savefig("output/temporal_cost_funtional_" + CASE + ".eps", format='eps')
