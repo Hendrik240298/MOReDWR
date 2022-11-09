@@ -75,9 +75,11 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
     return POD, bunch, singular_values, total_energy
 
 
-for cycle in os.listdir(OUTPUT_PATH):
-    if "7" not in cycle:
-        continue
+# for cycle in os.listdir(OUTPUT_PATH):
+#     if "7" not in cycle:
+#         continue    
+for number_runs in range(1):
+    cycle = "cycle=7"
     print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
     # NO BC
     [data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/matrix_no_bc.txt")
