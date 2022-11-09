@@ -11,7 +11,7 @@ import time
 PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
-CASE = "two"    ## "two" or "moving"
+CASE = "moving"    ## "two" or "moving"
 OUTPUT_PATH = "../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
 
@@ -74,7 +74,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
 
 
 for cycle in os.listdir(OUTPUT_PATH):
-    if "7" not in cycle:
+    if "5" not in cycle:
         continue
     print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
     # NO BC
@@ -520,7 +520,7 @@ for cycle in os.listdir(OUTPUT_PATH):
             (grid_t,
              grid_x),
             method=INTERPOLATION_TYPE)
-        
+        plt.rcParams["figure.figsize"] = (10,5)
         fig, axs = plt.subplots(2,1)
         #fig.suptitle(f"Projected reduced solution (ref={cycle.split('=')[1]})")
         # Plot 1: u_r
@@ -530,6 +530,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         axs[0].set_ylabel("$x$")
         axs[0].set_title("$u_N$")
         fig.colorbar(im0, ax=axs[0])
+        #plt.subplots_adjust(hspace=0.5)
         # Plot 2: u_h - u_r
         im1 = axs[1].imshow(error_grid.T, extent=(0, 4, 0, 1), origin='lower')
         plt.xlabel('$t \; [$s$]$')
@@ -538,6 +539,19 @@ for cycle in os.listdir(OUTPUT_PATH):
         fig.colorbar(im1, ax=axs[1])
         plt.savefig("output/reduced_solution_" + CASE + ".eps", format='eps')
         plt.show()
+
+
+        # ## plot temporal error
+        # plt.rc('text', usetex=True)
+        # plt.imshow(reduced_grid.T, extent=(0, 4, 0, 1), origin='lower')
+        # plt.legend()
+        # # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+        # plt.xlabel('$t \; [$s$]$')
+        # plt.ylabel("$u_N$")
+        # #plt.xlim([0,n_slabs*time_step_size])
+        # #plt.title("temporal evaluation of cost funtional")
+        # plt.savefig("output/reduced_solution_" + CASE + ".eps", format='eps')    
+        # plt.show()        
 
 
         # Plot 3: temporal error
@@ -562,11 +576,11 @@ for cycle in os.listdir(OUTPUT_PATH):
         # axs[2].set_ylabel("$\\eta$")
         # axs[2].set_yscale("log")
         # axs[2].set_title("temporal error estimate")
-        
-        
+    
         
         ## plot temporal error
         plt.rc('text', usetex=True)
+        # plt.rcParams["figure.figsize"] = (10,2)
         plt.plot(xx, yy,label="$u_N$")
         plt.plot(xx_FOM, yy_FOM,color='r',label="$u_h$")
         plt.grid()
@@ -584,6 +598,7 @@ for cycle in os.listdir(OUTPUT_PATH):
         
         ## plot temporal evolution of cost funtiponal 
         plt.rc('text', usetex=True)
+        # plt.rcParams["figure.figsize"] = (10,2)
         plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_h_t,color='r',label="$u_h$")
         plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_r_t,'--',c='#1f77b4',label="$u_N$")
         plt.grid()
