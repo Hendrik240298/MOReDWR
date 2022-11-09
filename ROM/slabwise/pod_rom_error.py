@@ -6,9 +6,11 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 import os
 import time
+import sys
 
 
-PLOTTING = True
+
+PLOTTING = False
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 CASE = "moving"    ## "two" or "moving"
@@ -494,6 +496,13 @@ for cycle in os.listdir(OUTPUT_PATH):
     print("FOM solves: " + str(np.sum(temporal_interval_error_incidactor)
                                ) + " / " + str(len(temporal_interval_error_incidactor)))
     projected_reduced_solution = np.hstack(projected_reduced_solutions)
+    
+    original_stdout = sys.stdout # Save a reference to the original standard output
+    with open('output/speedup_' + CASE + '_cycle_' + str(cycle) + '.txt', 'a') as f:
+        sys.stdout = f # Change the standard output to the file we created.
+        print(str(execution_time_FOM) + ', ' + str(execution_time_ROM) + ', ' + str(execution_time_FOM/execution_time_ROM))
+        sys.stdout = original_stdout # Reset the standard output to its original value
+
 
     J_r = 0.
     J_r_t = np.empty([n_slabs,1])
