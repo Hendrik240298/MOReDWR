@@ -74,7 +74,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
 
 
 for cycle in os.listdir(OUTPUT_PATH):
-    if "5" not in cycle:
+    if "7" not in cycle:
         continue
     print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
     # NO BC
@@ -298,7 +298,7 @@ for cycle in os.listdir(OUTPUT_PATH):
 
     # desired energy ratio
     ENERGY_RATIO_THRESHOLD = 0.9999
-    ENERGY_RATIO_THRESHOLD_DUAL = 0.99999999
+    ENERGY_RATIO_THRESHOLD_DUAL = 0.9999
 
     # # determine number of POD basis vectors needed to preserve certain ratio
     # # of energy
@@ -312,6 +312,9 @@ for cycle in os.listdir(OUTPUT_PATH):
     #     f"To preserve {ENERGY_RATIO_THRESHOLD} of information we need {r} primal POD vector(s). (result: {eigen_values[:r].sum() / eigen_values.sum()} information).")
     # print(
     #     f"To preserve {ENERGY_RATIO_THRESHOLD_DUAL} of information we need {r_dual} dual POD vector(s). (result: {dual_eigen_values[:r_dual].sum() / dual_eigen_values.sum()} information).")
+
+    dual_pod_basis = dual_pod_basis[:,range(r_dual)]
+    dual_eigen_values = dual_eigen_values[range(r_dual)]  
 
     # # -------------------------
     # # compute POD basis vectors
@@ -403,16 +406,16 @@ for cycle in os.listdir(OUTPUT_PATH):
             slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy)
 
     # plot the initial POD basis
-    for i in range(pod_basis.shape[1]):
-        plt.plot(coordinates_x,
-                 pod_basis[:,
-                           i],
-                 color=colors[i % len(colors)],
-                 label=str(i + 1))
-    plt.legend()
-    plt.xlabel("$x$")
-    plt.title("DEBUG: Initial POD vectors")
-    plt.show()
+    # for i in range(pod_basis.shape[1]):
+    #     plt.plot(coordinates_x,
+    #              pod_basis[:,
+    #                        i],
+    #              color=colors[i % len(colors)],
+    #              label=str(i + 1))
+    # plt.legend()
+    # plt.xlabel("$x$")
+    # plt.title("DEBUG: Initial POD vectors")
+    # plt.show()
 
     # change from the FOM to the POD basis
     space_time_pod_basis = scipy.sparse.block_diag(
@@ -613,12 +616,10 @@ for cycle in os.listdir(OUTPUT_PATH):
         
         
         
-        
     reduced_dual_matrix = dual_space_time_pod_basis.T.dot(
         matrix_no_bc.T.dot(dual_space_time_pod_basis))
     reduced_dual_jump_matrix = dual_space_time_pod_basis.T.dot(
         jump_matrix_no_bc.T.dot(dual_space_time_pod_basis))
-
     # --------------
     # %% dual ROM solve
     reduced_dual_solutions = []
@@ -636,7 +637,6 @@ for cycle in os.listdir(OUTPUT_PATH):
     projected_reduced_dual_solutions = projected_reduced_dual_solutions[::-1]
     projected_reduced_dual_solution = np.hstack(
         projected_reduced_dual_solutions)
-
     # ----------------
     # %% error estimation
     true_error = J['u_h'] - J['u_r'][-1]
@@ -648,7 +648,6 @@ for cycle in os.listdir(OUTPUT_PATH):
     print(f"True error:        {true_error}")
     print(f"Estimated error:   {error_estimator}")
     print(f"Effectivity index: {abs(true_error / error_estimator)}")
-
     # using ROM dual solution
     temporal_interval_error_cheap = []
     for i in range(n_slabs):
