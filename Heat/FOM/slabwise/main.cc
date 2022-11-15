@@ -73,6 +73,7 @@
 #include <string>
 #include <set>
 #include <memory>
+#include <map>
 #include <sys/stat.h> // for mkdir
 
 using namespace dealii;
@@ -133,6 +134,7 @@ double InitialValues<dim>::value(const Point<dim> &p,
 		// u_0(x) = sin(πx)
 		return std::sin(M_PI * p[0]);
 	case 2:
+		// TODO!
 		// u_0(x,y) = 1 / [1 + (x - 3/4)^2 + (y - 1/2)^2]
 		return 1 / (1 + std::pow(p[0] - 0.75, 2) + std::pow(p[1] - 0.5, 2));
 	default:
@@ -399,7 +401,7 @@ Slab::Slab(unsigned int r, double start_time, double end_time) :
 template<int dim>
 class SpaceTime {
 public:
-	SpaceTime(unsigned int s, std::vector<unsigned int> r, std::vector<double> time_points = {0., 1.},
+	SpaceTime(std::string problem_name, unsigned int s, std::vector<unsigned int> r, std::vector<double> time_points = {0., 1.},
 		unsigned int max_n_refinement_cycles = 3, bool refine_space = true, bool refine_time = true, bool split_slabs = true);
 	void run();
 	void print_grids(std::string file_name_space, std::string file_name_time);
@@ -415,6 +417,8 @@ private:
 	void output_svg(std::ofstream &out, Vector<double> &space_solution, double time_point, double x_min, double x_max, double y_min, double y_max) const; // only for 1D in space
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
 	void print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number);
+
+	std::string problem_name;
 	
 	// space
 	Triangulation<dim>            space_triangulation;		
@@ -448,8 +452,9 @@ private:
 };
 
 template<int dim>
-SpaceTime<dim>::SpaceTime(unsigned int s, std::vector<unsigned int> r, std::vector<double> time_points,
+SpaceTime<dim>::SpaceTime(std::string problem_name, unsigned int s, std::vector<unsigned int> r, std::vector<double> time_points,
 		unsigned int max_n_refinement_cycles, bool refine_space, bool refine_time, bool split_slabs) :
+		 problem_name(problem_name),
 		 space_fe(s), space_dof_handler(space_triangulation),
 		 max_n_refinement_cycles(max_n_refinement_cycles),
 		 refine_space(refine_space), refine_time(refine_time),
@@ -630,10 +635,16 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	DualRightHandSide<dim> dual_right_hand_side(end_time-start_time);
 
 	// primal rhs
-//	RightHandSide<dim> right_hand_side;
-//	RightHandSideSingleSource<dim> right_hand_side;
-	RightHandSideTwoSources<dim> right_hand_side;
-//	RightHandSideMovingSource<dim> right_hand_side;
+	std::shared_ptr< Function<dim> >  right_hand_side;
+	if (problem_name == "single_source")
+	  right_hand_side = std::make_shared< RightHandSideSingleSource<dim> >();
+	else if (problem_name == "two_sources")
+	  right_hand_side = std::make_shared< RightHandSideTwoSources<dim> >();
+	else if (problem_name == "moving_source")
+	  right_hand_side = std::make_shared< RightHandSideMovingSource<dim> >();
+	else
+	  Assert(false, ExcNotImplemented());
+
 	// space
 	QGauss<dim> space_quad_formula(space_fe.degree + 1);
 	FEValues<dim> space_fe_values(space_fe, space_quad_formula,
@@ -680,7 +691,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	    {
 	      // time quadrature point
 	      const double t_qq = time_fe_values.quadrature_point(qq)[0];
-	      right_hand_side.set_time(t_qq);
+	      right_hand_side->set_time(t_qq);
 	      dual_right_hand_side.set_time(t_qq);
 	      
 	      for (const unsigned int q : space_fe_values.quadrature_point_indices())
@@ -694,7 +705,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		    // right hand side
 		    cell_rhs(i + ii * space_dofs_per_cell) += (
 		         space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
-								     right_hand_side.value(x_q) * // f(t_qq, x_q)
+								    right_hand_side->value(x_q) * // f(t_qq, x_q)
 					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
 		    );
 		    
@@ -868,7 +879,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  }
 	}
 	
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+	std::string output_dir = "../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/cycle=" + std::to_string(cycle) + "/";
 	
 	////////////////////////////////////////////////////
 	// save system & jump matrix and rhs to file (NO BC)
@@ -943,7 +954,7 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsi
     
     if (first_slab)
     {
-      std::ofstream boundary_id_out("output/dim=1/cycle=" + std::to_string(cycle) + "/" + "boundary_id.txt");
+      std::ofstream boundary_id_out("../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
       for (unsigned int i = 0; i < boundary_ids.size()-1; ++i)
 	boundary_id_out << boundary_ids[i] << " ";
       boundary_id_out << boundary_ids[boundary_ids.size()-1];
@@ -1101,10 +1112,7 @@ void SpaceTime<1>::output_svg(std::ofstream &out, Vector<double> &space_solution
 
 template<>
 void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
-	// create output directory if necessary
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
-	for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
-	  mkdir(dir, S_IRWXU);
+	std::string output_dir = "../../Data/1D/" + problem_name + "/slabwise/cycle=" + std::to_string(refinement_cycle) + "/";
 	
 	// highest and lowest value of solution (hardcoded for the given 1D problem)
 	double y_max = 0.009; //1.4; //std::max(*std::max_element(solution.begin(), solution.end()), 0.);
@@ -1133,11 +1141,8 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
 
 template<>
 void SpaceTime<2>::output_results(const unsigned int refinement_cycle) {
-	// create output directory if necessary
-	std::string output_dir = "output/dim=2/cycle=" + std::to_string(refinement_cycle) + "/";
-	for (auto dir : {"output/", "output/dim=2/", output_dir.c_str()})
-	  mkdir(dir, S_IRWXU);
-  
+	std::string output_dir = "../../Data/2D/" + problem_name + "/slabwise/cycle=" + std::to_string(refinement_cycle) + "/";
+
 	// output results as VTK files
 	for (auto time_point : time_support_points)
 	{
@@ -1306,6 +1311,8 @@ void SpaceTime<dim>::print_coordinates(std::shared_ptr<Slab> &slab, std::string 
 
 template<int dim>
 void SpaceTime<dim>::run() {
+	std::cout << "Starting problem " << problem_name << " in " << dim << "+1D..." << std::endl;
+
 	// create a coarse grid
 	make_grids();
 
@@ -1321,8 +1328,11 @@ void SpaceTime<dim>::run() {
 				<< std::endl;
 				
 		// create output directory if necessary
-		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
-		for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
+		std::string dim_dir = "../../Data/" + std::to_string(dim) + "D/";
+		std::string problem_dir = dim_dir + problem_name + "/";
+		std::string slabwise_dir = problem_dir + "slabwise/";
+		std::string output_dir = slabwise_dir + "cycle=" + std::to_string(cycle) + "/";
+		for (auto dir : {"../../Data/", dim_dir.c_str(), problem_dir.c_str(), slabwise_dir.c_str(), output_dir.c_str()})
 		  mkdir(dir, S_IRWXU);
 
 		// reset values from last refinement cycle
@@ -1428,12 +1438,16 @@ int main() {
 	try {
 		deallog.depth_console(2);
 
+		const std::string problem_name = "two_sources";
+		const int dim = 1; //2;
+
 		// run the simulation
-		SpaceTime<1> space_time_problem(
+		SpaceTime<dim> space_time_problem(
+		  problem_name,     // problem_name
 		  1,                // s ->  spatial FE degree
 		  {1,1,1,1},        // r -> temporal FE degree
 		  {0.,1.,2.,3.,4.}, // time points 
-		  10,                // max_n_refinement_cycles,
+		  10,               // max_n_refinement_cycles,
 		  true,             // refine_space
 		  true,             // refine_time
 		  true              // split_slabs
