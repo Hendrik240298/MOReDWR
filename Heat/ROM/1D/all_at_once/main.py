@@ -9,7 +9,7 @@ import os
 PLOTTING = False #True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
-OUTPUT_PATH = "../../FOM/all_at_once/output/dim=1/"
+OUTPUT_PATH = "../../../Data/1D/moving_source/all_at_once/"
 
 
 def iPOD(POD, bunch, singular_values, snapshot, total_energy):

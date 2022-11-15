@@ -3,7 +3,7 @@ import scipy.sparse
 import scipy.sparse.linalg
 import os
 
-OUTPUT_PATH = "../../FOM/all_at_once/output/dim=1/"
+OUTPUT_PATH = "../../../Data/1D/moving_source/all_at_once/"
 
 for cycle in os.listdir(OUTPUT_PATH):
   print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")

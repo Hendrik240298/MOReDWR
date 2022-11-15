@@ -368,6 +368,8 @@ private:
 	bool refine_space, refine_time;
 	std::vector<double> L2_error_vals;
 	ConvergenceTable convergence_table;
+
+	std::string problem_name;
 };
 
 template<int dim>
@@ -679,7 +681,7 @@ void SpaceTime<dim>::assemble_system(unsigned int cycle) {
 	  }
 	}
 	
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+	std::string output_dir = "../../Data/1D/" + problem_name + "/all_at_once/cycle=" + std::to_string(cycle) + "/";
 	
 	/////////////////////////////////////////////
 	// save system matrix and rhs to file (NO BC)
@@ -945,7 +947,7 @@ void SpaceTime<1>::output_svg(std::ofstream &out, Vector<double> &space_solution
 template<>
 void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
 	
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
+	std::string output_dir = "../../Data/1D/" + problem_name + "/all_at_once/cycle=" + std::to_string(refinement_cycle) + "/";
 
 	// highest and lowest value of solution
 	double y_max = std::max(*std::max_element(solution.begin(), solution.end()), 0.);
@@ -1127,9 +1129,12 @@ void SpaceTime<dim>::run() {
 				<< std::endl;
 
 		// create output directory if necessary
-		std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
-		for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
-		mkdir(dir, S_IRWXU);
+		problem_name = "moving_source"; // TODO: pass problem_name by the constructor of the SpaceTime object
+		std::string problem_dir =  "../../Data/1D/" + problem_name + "/";
+		std::string all_at_once_dir =  problem_dir + "all_at_once/";
+		std::string output_dir = all_at_once_dir + "cycle=" + std::to_string(cycle) + "/";
+		for (auto dir : {"../../Data/", "../../Data/1D/", problem_dir.c_str(), all_at_once_dir.c_str(), output_dir.c_str()})
+			mkdir(dir, S_IRWXU);
 
 		// create and solve linear system
 		setup_system();
