@@ -129,17 +129,11 @@ public:
 template<int dim>
 double InitialValues<dim>::value(const Point<dim> &p,
 		const unsigned int /*component*/) const {
-	switch (dim) {
-	case 1:
-		// u_0(x) = sin(πx)
-		return std::sin(M_PI * p[0]);
-	case 2:
-		// TODO!
-		// u_0(x,y) = 1 / [1 + (x - 3/4)^2 + (y - 1/2)^2]
-		return 1 / (1 + std::pow(p[0] - 0.75, 2) + std::pow(p[1] - 0.5, 2));
-	default:
+	double a = 64.;
+	if (dim == 2)
+	    return (std::pow(p[0] - 0.75, 2) + std::pow(p[1] - 0.5, 2) < 1. / a) * 1.; //(std::exp(1.0/(-a*(std::pow(p[0] - 1.0/2.0, 2) + std::pow(p[1] - 1.0/4.0, 2)) + 1)));
+	else
 		Assert(false, ExcNotImplemented());
-	}
 	return -1.0; // to avoid "no return warning"
 }
 
@@ -179,11 +173,11 @@ double Solution<dim>::value(const Point<dim> &p,
 	}
 	case 2:
 	{
-		// u(t,x,y) = 1 / [1 + (x - x_0(t))^2 + (y - y_0(t))^2]
-		// x0(t)    = 1/2 + (1/4)cos(2πt)
-		// y0(t)    = 1/2 + (1/4)sin(2πt)
-		double x0 = 0.5 + 0.25 * std::cos(2 * M_PI * t);
-		double y0 = 0.5 + 0.25 * std::sin(2 * M_PI * t);
+		// u(t,x,y) = 1 / [1 + (ax - x_0(t))^2 + (ay - y_0(t))^2]
+		// x0(t)    = 1/4 + (1/4)cos(2πt)
+		// y0(t)    = 1/4 + (1/4)sin(2πt)
+		double x0 = 0.25 + 0.25 * std::cos(2 * M_PI * t);
+		double y0 = 0.25 + 0.25 * std::sin(2 * M_PI * t);
 		return 1 / (1 + std::pow(p[0] - x0, 2) + std::pow(p[1] - y0, 2));
 	}
 	default:
@@ -234,9 +228,9 @@ Tensor<1, dim> Solution<dim>::gradient(const Point<dim> &p,
 }
 
 template<int dim>
-class RightHandSide: public Function<dim> {
+class RightHandSideRotatingCircle: public Function<dim> {
 public:
-	RightHandSide() :
+	RightHandSideRotatingCircle() :
 			Function<dim>() {
 	}
 	virtual double value(const Point<dim> &p,
@@ -244,27 +238,25 @@ public:
 };
 
 template<int dim>
-double RightHandSide<dim>::value(const Point<dim> &p,
+double RightHandSideRotatingCircle<dim>::value(const Point<dim> &p,
 		const unsigned int /*component*/) const {
 	const double t = this->get_time();
-	switch (dim) {
-	case 1:
+	double r = 0.125;
+	if (dim == 2)
 	{
-		// f(t,x) = sin(πx)exp(-t/2)(1/2 + π^2 + (π^2 - 1/2)t)
-		return std::sin(M_PI * p[0]) * std::exp(-0.5 * t)
-				* (0.5 + std::pow(M_PI, 2) + (std::pow(M_PI, 2) - 0.5) * t);
+	    // f(t,x,y) = sin(4πt) * indicator_function_circle(center=(x0(t),y0(t)), radius=r)
+	    // x0(t)    = 1/2 + (1/4)cos(2πt)
+	    // y0(t)    = 1/2 + (1/4)sin(2πt)
+	    double x0 = 0.5 + 0.25 * std::cos(2 * M_PI * t);
+	    double y0 = 0.5 + 0.25 * std::sin(2 * M_PI * t);
+	    return  std::sin(4.*M_PI*t) * (std::pow(p[0] - x0, 2) + std::pow(p[1] - y0, 2) < std::pow(r, 2));
+	
+	    // f(t,x,y) = ∂_t u(t,x,y) - Δ u(t,x,y)
+	    // f has been computed symbolically with the Python package SymPy and the following code has been written by its code generation feature (https://docs.sympy.org/latest/modules/codegen.html)
+	    //return (std::pow(p[0] - 1.0/2.0, 2) + std::pow(p[1] - 1.0/4.0, 2) < 1. / a) * (a*(M_PI*(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0)*std::sin(2*M_PI*p[2]) - M_PI*(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0)*std::cos(2*M_PI*p[2]))*std::exp(1.0/(-a*(std::pow(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0, 2) + std::pow(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0, 2)) + 1))/std::pow(-a*(std::pow(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0, 2) + std::pow(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0, 2)) + 1, 2) - 512*a*(-4*a*std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2)/(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16) + 32*a*std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2)/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) + 1)*std::exp(-1/((1.0/16.0)*a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 1))/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) - 512*a*(-4*a*std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)/(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16) + 32*a*std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) + 1)*std::exp(-1/((1.0/16.0)*a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 1))/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2));
 	}
-	case 2:
-	{
-		// f(t,x,y) = ∂_t u(t,x,y) - Δ u(t,x,y)
-		// f has been computed symbolically with the Python package SymPy and the following code has been written by its code generation feature (https://docs.sympy.org/latest/modules/codegen.html)
-		return 128*(-8*std::pow(-4*p[0] + std::cos(2*M_PI*t) + 2, 2) - 8*std::pow(-4*p[1] + std::sin(2*M_PI*t) + 2, 2) + M_PI*(-2*p[0]*std::sin(2*M_PI*t) + 2*p[1]*std::cos(2*M_PI*t) - M_SQRT2*std::cos(M_PI*(2*t + 1.0/4.0)))*(std::pow(-4*p[0] + std::cos(2*M_PI*t) + 2, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*t) + 2, 2) + 16) + 128)/std::pow(std::pow(-4*p[0] + std::cos(2*M_PI*t) + 2, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*t) + 2, 2) + 16, 3);
-	}
-	default:
-	{
+	else
 		Assert(false, ExcNotImplemented());
-	}
-	}
 	return -1.0; // to avoid "no return warning"
 }
 
@@ -642,6 +634,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  right_hand_side = std::make_shared< RightHandSideTwoSources<dim> >();
 	else if (problem_name == "moving_source")
 	  right_hand_side = std::make_shared< RightHandSideMovingSource<dim> >();
+	else if (problem_name == "rotating_circle" && dim == 2)
+	  right_hand_side = std::make_shared< RightHandSideRotatingCircle<dim> >();
 	else
 	  Assert(false, ExcNotImplemented());
 
@@ -913,7 +907,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 template<int dim>
 void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab) {
    // apply the spatial Dirichlet boundary conditions at each temporal DoF
-   Solution<dim> solution_func;
+   //Solution<dim> solution_func;
+   Functions::ZeroFunction<dim> solution_func;
    
    // list of constrained space-time DoF indices
    std::vector<types::global_dof_index> boundary_ids;
@@ -1355,9 +1350,25 @@ void SpaceTime<dim>::run() {
 		VectorTools::project(space_dof_handler,
 				      constraints,
 				      QGauss<dim>(space_fe.degree + 1),
-				      ZeroInitialValues<dim>(), //InitialValues<dim>(),
+				      ZeroInitialValues<dim>(),
 				      initial_solution);
-				
+		/*
+		if (problem_name == "rotating_circle")
+			VectorTools::project(space_dof_handler,
+				      constraints,
+				      QGauss<dim>(space_fe.degree + 3),
+				      InitialValues<dim>(),
+				      initial_solution);
+		
+		// for debugging:
+	  	DataOut<2> data_out;
+	  	data_out.attach_dof_handler(space_dof_handler);
+	 	data_out.add_data_vector(initial_solution, "u");
+	  	data_out.build_patches();
+	  	std::ofstream output(output_dir + "initial_solution.vtk");
+	  	data_out.write_vtk(output);
+		*/
+
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
 		    // create and solve linear system
@@ -1365,10 +1376,6 @@ void SpaceTime<dim>::run() {
 		    assemble_system(slabs[k], k, cycle, k == 0, k == 0);
 		    solve(k == 0);
 
-		    // evaluate primal FEM solution in mean value goal functional
-		    //double goal_functional = compute_goal_functional();
-		    //std::cout << "J(u_h) = " << goal_functional << std::endl;
-			
 		    // output Space-Time DoF coordinates
 		    print_coordinates(slabs[k], output_dir, k);
 			
@@ -1438,8 +1445,8 @@ int main() {
 	try {
 		deallog.depth_console(2);
 
-		const std::string problem_name = "two_sources";
-		const int dim = 1; //2;
+		const std::string problem_name = "rotating_circle"; //"two_sources";
+		const int dim = 2; //2;
 
 		// run the simulation
 		SpaceTime<dim> space_time_problem(
