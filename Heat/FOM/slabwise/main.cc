@@ -349,6 +349,7 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> mass_matrix;
 	SparseMatrix<double> jump_matrix;
 	SparseDirectUMFPACK A_direct;
 	Vector<double> solution; // space-time solution on current slab
@@ -532,6 +533,7 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	  sparsity_pattern.print_svg(out_sparsity);
 	  
 	  system_matrix.reinit(sparsity_pattern);
+	  mass_matrix.reinit(sparsity_pattern);
 	  
 	  if (slab->time_triangulation.n_active_cells() == 1)
 	    jump_matrix.reinit(sparsity_pattern);
@@ -589,6 +591,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
+	FullMatrix<double> cell_mass(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	FullMatrix<double> cell_jump(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
@@ -603,6 +606,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	    time_cell->get_dof_indices(time_local_dof_indices);
 	    
 	    cell_matrix = 0;
+	    cell_mass = 0;
 	    cell_rhs = 0;
 	    cell_dual_rhs = 0;
 	    cell_jump = 0;
@@ -640,6 +644,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		    if (assemble_matrix)
 		      for (const unsigned int j : space_fe_values.dof_indices())
 		      for (const unsigned int jj : time_fe_values.dof_indices())
+		      {
 			cell_matrix(
 			  j + jj * space_dofs_per_cell,
 			  i + ii * space_dofs_per_cell
@@ -650,6 +655,18 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 			  + space_fe_values.shape_grad(i, q) * time_fe_values.shape_value(ii, qq) *  // ∇_x ϕ_{i,ii}(t_qq, x_q)
 			  space_fe_values.shape_grad(j, q) * time_fe_values.shape_value(jj, qq)      // ∇_x ϕ_{j,jj}(t_qq, x_q)
 			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+			
+			if (time_cell->active_cell_index() == 0)
+			{
+			   cell_mass(
+			     j + jj * space_dofs_per_cell,
+		             i + ii * space_dofs_per_cell
+		           ) += (
+			      space_fe_values.shape_value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
+			      space_fe_values.shape_value(j, q) * time_fe_values.shape_value(jj, qq)   // ϕ_{j,jj}(t_qq, x_q)
+			   ) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 		     // d(t,x)
+			}
+		      }
 		  }
 	      }
 	    }
@@ -784,11 +801,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		for (const unsigned int ii : time_fe_values.dof_indices())
 		  for (const unsigned int j : space_fe_values.dof_indices())
 		    for (const unsigned int jj : time_fe_values.dof_indices())
-		      jump_matrix.add(
-			space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
-			space_local_dof_indices[j] + time_prev_local_dof_indices[jj] * space_dof_handler.n_dofs(),
-			cell_jump(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
-		      );
+		    {
+			jump_matrix.add(
+			    space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+			    space_local_dof_indices[j] + time_prev_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+			    cell_jump(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		        );
+
+			mass_matrix.add(
+			    space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+			    space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+			    cell_mass(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		        );
+		    }
 		    
 	     // prepare next time cell
 	     if (time_cell->active_cell_index() < slab->time_triangulation.n_active_cells()-1)
@@ -810,6 +835,9 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  
 	  std::ofstream jump_matrix_no_bc_out(output_dir + "jump_matrix_no_bc.txt");
 	  print_as_numpy_arrays_high_resolution(jump_matrix, jump_matrix_no_bc_out, /*precision*/16);
+
+	  std::ofstream mass_matrix_no_bc_out(output_dir + "mass_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(mass_matrix, mass_matrix_no_bc_out, /*precision*/16);
 	}
 	
 	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
