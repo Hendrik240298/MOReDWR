@@ -120,24 +120,6 @@ void print_as_numpy_arrays_high_resolution(SparseMatrix<double> &matrix,
 }
 
 template<int dim>
-class InitialValues: public Function<dim> {
-public:
-	virtual double value(const Point<dim> &p,
-			const unsigned int component = 0) const override;
-};
-
-template<int dim>
-double InitialValues<dim>::value(const Point<dim> &p,
-		const unsigned int /*component*/) const {
-	double a = 64.;
-	if (dim == 2)
-	    return (std::pow(p[0] - 0.75, 2) + std::pow(p[1] - 0.5, 2) < 1. / a) * 1.; //(std::exp(1.0/(-a*(std::pow(p[0] - 1.0/2.0, 2) + std::pow(p[1] - 1.0/4.0, 2)) + 1)));
-	else
-		Assert(false, ExcNotImplemented());
-	return -1.0; // to avoid "no return warning"
-}
-
-template<int dim>
 class ZeroInitialValues: public Function<dim> {
 public:
 	virtual double value(const Point<dim> &p,
@@ -165,66 +147,14 @@ template<int dim>
 double Solution<dim>::value(const Point<dim> &p,
 		const unsigned int /*component*/) const {
 	const double t = this->get_time();
-	switch (dim) {
-	case 1:
-	{
-		// u(t,x) = sin(πx)(1+t)exp(-t/2)
-		return std::sin(M_PI * p[0]) * (1 + t) * std::exp(-0.5 * t);
-	}
-	case 2:
-	{
-		// u(t,x,y) = 1 / [1 + (ax - x_0(t))^2 + (ay - y_0(t))^2]
-		// x0(t)    = 1/4 + (1/4)cos(2πt)
-		// y0(t)    = 1/4 + (1/4)sin(2πt)
-		double x0 = 0.25 + 0.25 * std::cos(2 * M_PI * t);
-		double y0 = 0.25 + 0.25 * std::sin(2 * M_PI * t);
-		return 1 / (1 + std::pow(p[0] - x0, 2) + std::pow(p[1] - y0, 2));
-	}
-	default:
-	{
-		Assert(false, ExcNotImplemented());
-	}
-	}
-	return -1.0; // to avoid "no return warning"
+	return 0.; // we don't have a known analytical/manufactured solution
 }
 
 template<int dim>
 Tensor<1, dim> Solution<dim>::gradient(const Point<dim> &p,
 		const unsigned int /*component*/) const {
 	Tensor<1, dim> grad;
-	switch (dim) {
-	case 2:
-	{
-		// ∂_x u(t,x) = πcos(πx)(1+t)exp(-t/2)
-		// ∂_t u(t,x) = (1/2)sin(πx)(1-t)exp(-t/2)
-		grad[0] = M_PI * std::cos(M_PI * p[0]) * (1 + p[1])
-				* std::exp(-0.5 * p[1]);
-		grad[1] = 0.5 * std::sin(M_PI * p[0]) * (1 - p[1])
-				* std::exp(-0.5 * p[1]);
-		return grad;
-	}
-	case 3:
-	{
-		// z(t,x,y) := 1 + (x - x_0(t))^2 + (y - y_0(t))^2 with x_0, y_0 as defined in Solution<dim>::value
-		// ∂_x u(t,x,y) = 2(x_0(t)-x) / z(t,x,y)^2
-		// ∂_y u(t,x,y) = 2(y_0(t)-y) / z(t,x,y)^2
-		// ∂_t u(t,x,y) = [πcos(2πt)(y_0(t)-y)-πsin(2πt)(x_0(t)-x)] / z(t,x,y)^2
-		double x0 = 0.5 + 0.25 * std::cos(2 * M_PI * p[2]);
-		double y0 = 0.5 + 0.25 * std::sin(2 * M_PI * p[2]);
-		double z = (1 + std::pow(p[0] - x0, 2) + std::pow(p[1] - y0, 2));
-		grad[0] = 2 * (x0 - p[0]) / std::pow(z, 2);
-		grad[1] = 2 * (y0 - p[1]) / std::pow(z, 2);
-		grad[2] = (M_PI * std::cos(2 * M_PI * p[2]) * (p[1] - y0)
-				- M_PI * std::sin(2 * M_PI * p[2]) * (p[0] - x0))
-				/ std::pow(z, 2);
-		return grad;
-	}
-	default:
-	{
-		Assert(false, ExcNotImplemented());
-	}
-	}
-	return grad; // to avoid "no return warning"
+	return grad; // we don't have a known analytical/manufactured solution
 }
 
 template<int dim>
@@ -250,10 +180,6 @@ double RightHandSideRotatingCircle<dim>::value(const Point<dim> &p,
 	    double x0 = 0.5 + 0.25 * std::cos(2 * M_PI * t);
 	    double y0 = 0.5 + 0.25 * std::sin(2 * M_PI * t);
 	    return  std::sin(4.*M_PI*t) * (std::pow(p[0] - x0, 2) + std::pow(p[1] - y0, 2) < std::pow(r, 2));
-	
-	    // f(t,x,y) = ∂_t u(t,x,y) - Δ u(t,x,y)
-	    // f has been computed symbolically with the Python package SymPy and the following code has been written by its code generation feature (https://docs.sympy.org/latest/modules/codegen.html)
-	    //return (std::pow(p[0] - 1.0/2.0, 2) + std::pow(p[1] - 1.0/4.0, 2) < 1. / a) * (a*(M_PI*(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0)*std::sin(2*M_PI*p[2]) - M_PI*(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0)*std::cos(2*M_PI*p[2]))*std::exp(1.0/(-a*(std::pow(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0, 2) + std::pow(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0, 2)) + 1))/std::pow(-a*(std::pow(p[0] - 1.0/4.0*std::cos(2*M_PI*p[2]) - 1.0/4.0, 2) + std::pow(p[1] - 1.0/4.0*std::sin(2*M_PI*p[2]) - 1.0/4.0, 2)) + 1, 2) - 512*a*(-4*a*std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2)/(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16) + 32*a*std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2)/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) + 1)*std::exp(-1/((1.0/16.0)*a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 1))/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) - 512*a*(-4*a*std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)/(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16) + 32*a*std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2) + 1)*std::exp(-1/((1.0/16.0)*a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 1))/std::pow(a*(std::pow(-4*p[0] + std::cos(2*M_PI*p[2]) + 1, 2) + std::pow(-4*p[1] + std::sin(2*M_PI*p[2]) + 1, 2)) - 16, 2));
 	}
 	else
 		Assert(false, ExcNotImplemented());
@@ -907,8 +833,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 template<int dim>
 void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab) {
    // apply the spatial Dirichlet boundary conditions at each temporal DoF
-   //Solution<dim> solution_func;
-   Functions::ZeroFunction<dim> solution_func;
+   Functions::ZeroFunction<dim> solution_func; // NOTE: using homogeneous Dirichlet boundary conditions
    
    // list of constrained space-time DoF indices
    std::vector<types::global_dof_index> boundary_ids;
@@ -954,8 +879,6 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsi
 	boundary_id_out << boundary_ids[i] << " ";
       boundary_id_out << boundary_ids[boundary_ids.size()-1];
     }  
-      
-    
 }
 
 template<int dim>
@@ -1282,9 +1205,12 @@ void SpaceTime<dim>::print_coordinates(std::shared_ptr<Slab> &slab, std::string 
   x_out.precision(9);
   x_out.setf(std::ios::scientific, std::ios::floatfield);
   
-  for (auto point : space_support_points)
-      x_out << point[0] << ' ';
-  x_out << std::endl;
+  for (int d = 0; d < dim; d++)
+  {
+    for (auto point : space_support_points)
+      x_out << point[d] << ' ';
+    x_out << std::endl;
+  }
 
   // time
   std::vector<Point<1>> time_support_points(slab->time_dof_handler.n_dofs());
@@ -1345,29 +1271,13 @@ void SpaceTime<dim>::run() {
 		AffineConstraints<double> constraints;
 		constraints.close();		
 	
-		// compute initial value vector
+		// compute initial value vector -> NOTE: zero initial conditions
 		initial_solution.reinit(space_dof_handler.n_dofs());
 		VectorTools::project(space_dof_handler,
 				      constraints,
 				      QGauss<dim>(space_fe.degree + 1),
 				      ZeroInitialValues<dim>(),
 				      initial_solution);
-		/*
-		if (problem_name == "rotating_circle")
-			VectorTools::project(space_dof_handler,
-				      constraints,
-				      QGauss<dim>(space_fe.degree + 3),
-				      InitialValues<dim>(),
-				      initial_solution);
-		
-		// for debugging:
-	  	DataOut<2> data_out;
-	  	data_out.attach_dof_handler(space_dof_handler);
-	 	data_out.add_data_vector(initial_solution, "u");
-	  	data_out.build_patches();
-	  	std::ofstream output(output_dir + "initial_solution.vtk");
-	  	data_out.write_vtk(output);
-		*/
 
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
@@ -1446,30 +1356,19 @@ int main() {
 		deallog.depth_console(2);
 
 		const std::string problem_name = "rotating_circle"; //"two_sources";
-		const int dim = 2; //2;
+		const int dim = 2; //1;
 
 		// run the simulation
 		SpaceTime<dim> space_time_problem(
-		  problem_name,     // problem_name
-		  1,                // s ->  spatial FE degree
-		  {1,1,1,1},        // r -> temporal FE degree
-		  {0.,1.,2.,3.,4.}, // time points 
-		  10,               // max_n_refinement_cycles,
-		  true,             // refine_space
-		  true,             // refine_time
-		  true              // split_slabs
+		  problem_name,        // problem_name
+		  1,                   // s ->  spatial FE degree
+		  {1,1,1,1},           // r -> temporal FE degree
+		  {0.,1.,2.,3.,4.},    // time points 
+		  (dim == 2) ? 7 : 10, // max_n_refinement_cycles,
+		  true,                // refine_space
+		  true,                // refine_time
+		  true                 // split_slabs
 		);
-		/*
-		SpaceTime<2> space_time_problem(
-		  1,           // s ->  spatial FE degree
-		  {1,1},       // r -> temporal FE degree
-		  {0.,0.5,1.}, // time points 
-		  3,           // max_n_refinement_cycles,
-		  true,        // refine_space
-		  true,        // refine_time
-		  true         // splt_slabs
-		);
-		*/
 		space_time_problem.run();
 
 		// save final grid
