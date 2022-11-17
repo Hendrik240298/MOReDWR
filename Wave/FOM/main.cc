@@ -195,7 +195,7 @@ Slab::Slab(unsigned int r, double start_time, double end_time) :
 template<int dim>
 class SpaceTime {
 public:
-	SpaceTime(int s, std::vector<unsigned int> r, std::vector<double> time_points = {0., 1.},
+	SpaceTime(std::string problem_name, int s, std::vector<unsigned int> r, std::vector<double> time_points = {0., 1.},
 		unsigned int max_n_refinement_cycles = 3, bool refine_space = true, bool refine_time = true, bool split_slabs = true);
 	void run();
 	void print_grids(std::string file_name_space, std::string file_name_time);
@@ -211,6 +211,8 @@ private:
 	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const;
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
 	
+	std::string problem_name;
+
 	// space
 	Triangulation<dim>            space_triangulation;		
 	FESystem<dim>                 space_fe;
@@ -244,9 +246,10 @@ private:
 };
 
 template<int dim>
-SpaceTime<dim>::SpaceTime(int s, std::vector<unsigned int> r, std::vector<double> time_points,
+SpaceTime<dim>::SpaceTime(std::string problem_name, int s, std::vector<unsigned int> r, std::vector<double> time_points,
 		unsigned int max_n_refinement_cycles, bool refine_space, bool refine_time, 
                 bool split_slabs) :
+		 problem_name(problem_name),
 		 space_fe(/*u*/ FE_Q<1> (s),1, /*v*/ FE_Q<1> (s),1),
 		 space_dof_handler(space_triangulation),
 		 max_n_refinement_cycles(max_n_refinement_cycles),
@@ -574,9 +577,7 @@ void SpaceTime<dim>::solve() {
 template<>
 void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const {
 	// create output directory if necessary
-	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
-	for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
-	  mkdir(dir, S_IRWXU);
+	std::string output_dir = "../Data/1D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
 
 	//////////////////////////////////////////////////////////////////////////////
 	// output space-time vectors for displacement and velocity separately as .txt
@@ -600,9 +601,9 @@ void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	     index_v++;
 	  }
 	}
-	std::ofstream solution_u_out(output_dir + "solution_u_" + Utilities::int_to_string(slab_number, 5) + "txt");
+	std::ofstream solution_u_out(output_dir + "solution_u_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	solution_u.print(solution_u_out, /*precision*/16);
-	std::ofstream solution_v_out(output_dir + "solution_v_" + Utilities::int_to_string(slab_number, 5) + "txt");
+	std::ofstream solution_v_out(output_dir + "solution_v_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	solution_v.print(solution_v_out, /*precision*/16);
 
 	///////////////////////////////////////////
@@ -639,7 +640,7 @@ void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 		time_support_points
 	); 
 
-	std::ofstream t_out(output_dir + "coordinates_t_" + Utilities::int_to_string(slab_number, 5) + "txt");
+	std::ofstream t_out(output_dir + "coordinates_t_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	t_out.precision(9);
 	t_out.setf(std::ios::scientific, std::ios::floatfield);
 
@@ -798,6 +799,8 @@ void SpaceTime<dim>::print_convergence_table() {
 
 template<int dim>
 void SpaceTime<dim>::run() {
+	std::cout << "Starting problem " << problem_name << " in " << dim << "+1D..." << std::endl;
+
 	// create a coarse grid
 	make_grids();
 
@@ -811,6 +814,13 @@ void SpaceTime<dim>::run() {
 		std::cout
 				<< "-------------------------------------------------------------"
 				<< std::endl;
+
+		// create output directory if necessary
+		std::string dim_dir = "../Data/" + std::to_string(dim) + "D/";
+		std::string problem_dir = dim_dir + problem_name + "/";
+		std::string output_dir = problem_dir + "cycle=" + std::to_string(cycle) + "/";
+		for (auto dir : {"../Data/", dim_dir.c_str(), problem_dir.c_str(), output_dir.c_str()})
+		  mkdir(dir, S_IRWXU);
 
 		// reset values from last refinement cycle
 		n_snapshots = 0;
@@ -872,7 +882,6 @@ void SpaceTime<dim>::run() {
 		
 		if (dim == 1)
 		{
-			std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
 			std::string plotting_cmd = "python3 plot_solution.py  " + output_dir;
 			system(plotting_cmd.c_str());
 		}
@@ -909,8 +918,12 @@ int main() {
 	try {
 		deallog.depth_console(2);
 
+		const std::string problem_name = "analytic";
+		const int dim = 1; //2;
+
 		// run the simulation
-		SpaceTime<1> space_time_problem(
+		SpaceTime<dim> space_time_problem(
+		  problem_name,     // problem_name
 		  1,                // s ->  spatial FE degree
 		  {1,1,1,1},        // r -> temporal FE degree
 		  {0.,1.,2.,3.,4.}, // end_time,

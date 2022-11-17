@@ -1,4 +1,4 @@
-#/* ---------------------------------------------------------------------
+/* ---------------------------------------------------------------------
  * The space time finite elements code has been based on Step-3
  * of the deal.II tutorial programs.
  *
