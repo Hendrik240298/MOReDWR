@@ -105,6 +105,42 @@ void InitialValues<dim>::vector_value (const Point<dim> &p,
 }
 
 template<int dim>
+class InitialValues2D: public Function<dim> {
+public:
+	InitialValues2D() : Function<dim>(2) {}
+
+	virtual double value(const Point<dim> &p,
+			const unsigned int component) const override;
+
+	virtual void vector_value (const Point<dim> &p, 
+			     Vector<double>   &value) const;
+};
+
+template<int dim>
+double InitialValues2D<dim>::value(const Point<dim> &p,
+		const unsigned int component) const {
+	double x_s = p[0] / 0.01;
+	double y_s = p[1] / 0.01;
+	if (component == 0)
+	{
+	  if (1. - std::sqrt(x_s*x_s+y_s*y_s) < 0.)
+		return 0.;
+	  else
+		return std::exp(-x_s*x_s-y_s*y_s) * (1. - x_s*x_s - y_s*y_s);
+	}
+	else if (component == 1)
+		return 0.;
+}
+
+template <int dim>
+void InitialValues2D<dim>::vector_value (const Point<dim> &p,
+				    Vector<double>   &values) const 
+{
+  for (unsigned int c=0; c<2; ++c)
+    values(c) = InitialValues2D<dim>::value(p, c);
+}
+
+template<int dim>
 class Solution: public Function<dim> {
 public:
 	Solution() : Function<dim>(2) {}
@@ -130,7 +166,7 @@ double Solution<dim>::value(const Point<dim> &p,
 	}
 	case 2:
 	{
-		Assert(false, ExcNotImplemented());
+		return 0.;
 	}
 	default:
 	{
@@ -167,6 +203,8 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 	switch (dim) {
 	case 1:
 		return (2. - p[0]*(1.-p[0])) * std::sin(t);
+	case 2:
+		return 0.;
 	default:
 	{
 		Assert(false, ExcNotImplemented());
@@ -208,7 +246,7 @@ private:
 	void apply_initial_condition();
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab);
 	void solve();
-	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const;
+	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number);
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
 	
 	std::string problem_name;
@@ -250,7 +288,7 @@ SpaceTime<dim>::SpaceTime(std::string problem_name, int s, std::vector<unsigned 
 		unsigned int max_n_refinement_cycles, bool refine_space, bool refine_time, 
                 bool split_slabs) :
 		 problem_name(problem_name),
-		 space_fe(/*u*/ FE_Q<1> (s),1, /*v*/ FE_Q<1> (s),1),
+		 space_fe(/*u*/ FE_Q<dim> (s),1, /*v*/ FE_Q<dim> (s),1),
 		 space_dof_handler(space_triangulation),
 		 max_n_refinement_cycles(max_n_refinement_cycles),
 		 refine_space(refine_space), refine_time(refine_time),
@@ -345,12 +383,18 @@ void SpaceTime<1>::make_grids() {
 
 template<>
 void SpaceTime<2>::make_grids() {
-	// Hartmann test problem
+	// Simplified version of Example 5.4 from Bangerth, Geiger, Rannacher paper
 
 	// create grids
-	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(0., 0.), Point<2>(1., 1.));
+	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(-1., -1.), Point<2>(1., 1.));
 	for (auto &slab : slabs)
 	  GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
+
+	 // only Neumann BC
+	for (auto &cell : space_triangulation.cell_iterators())
+	    for (unsigned int face = 0; face < GeometryInfo<2>::faces_per_cell;face++)
+		    if (cell->face(face)->at_boundary())
+			  cell->face(face)->set_boundary_id(1);
 
 	// globally refine the grids
 	space_triangulation.refine_global(1);
@@ -575,8 +619,7 @@ void SpaceTime<dim>::solve() {
 }
 
 template<>
-void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const {
-	// create output directory if necessary
+void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) {
 	std::string output_dir = "../Data/1D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
 
 	//////////////////////////////////////////////////////////////////////////////
@@ -649,19 +692,20 @@ void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	t_out << std::endl;
 }
 
-//template<>
-//void SpaceTime<2>::output_results(const unsigned int refinement_cycle) const {
-// TODO: implement output_results for 2+1D wave equation
-/*
-	// create output directory if necessary
-	std::string output_dir = "output/dim=2/cycle=" + std::to_string(refinement_cycle) + "/";
-	for (auto dir : {"output/", "output/dim=2/", output_dir.c_str()})
-	  mkdir(dir, S_IRWXU);
+template<>
+void SpaceTime<2>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) {
+	std::string output_dir = "../Data/2D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
   
 	// output results as VTK files
 	unsigned int ii_ordered = 0;
 	for (auto time_point : time_support_points)
 	{
+	  if (slab_number > 0 && ii_ordered == 0)
+	  {
+	    ii_ordered++;
+	    continue;
+	  }
+
 	  double t_qq = time_point.first;
 	  unsigned int ii = time_point.second;
 	  
@@ -671,21 +715,24 @@ void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	  Vector<double> space_solution(space_dof_handler.n_dofs());
 	  for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
 	    space_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
+
+	  std::vector<std::string> solution_names;
+    	  solution_names.push_back("displacement");
+    	  solution_names.push_back("velocity");
 	  
-	  // TODO: debug this in 2D
 	  std::vector<DataComponentInterpretation::DataComponentInterpretation> data_component_interpretation(1+1, DataComponentInterpretation::component_is_scalar);
-	  data_out.add_data_vector(space_solution, {"displacement", "velocity"}, DataOut<2>::type_dof_data, data_component_interpretation);
+	  data_out.add_data_vector(space_solution, solution_names, DataOut<2>::type_dof_data, data_component_interpretation);
 	  data_out.build_patches();
 	 
 	  data_out.set_flags(DataOutBase::VtkFlags(t_qq, ii));
 	  
-	  std::ofstream output(output_dir + "solution" + Utilities::int_to_string(ii_ordered, 5) + ".vtk");
+	  std::ofstream output(output_dir + "solution" + Utilities::int_to_string(n_snapshots, 5) + ".vtk");
 	  data_out.write_vtk(output);
 	  
 	  ++ii_ordered;
+	  ++n_snapshots;
 	}
-*/
-//}
+}
 
 template<int dim>
 void SpaceTime<dim>::process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab) {
@@ -847,11 +894,21 @@ void SpaceTime<dim>::run() {
 
 		// compute initial value vector
 		initial_solution.reinit(space_dof_handler.n_dofs());
-		VectorTools::interpolate(space_dof_handler,
+		if (dim == 1)
+		{
+			VectorTools::interpolate(space_dof_handler,
 				 InitialValues<dim>(),
 				 initial_solution,
 				 ComponentMask());
-		
+		}
+		else if (dim == 2)
+		{		
+			VectorTools::interpolate(space_dof_handler,
+				 InitialValues2D<dim>(),
+				 initial_solution,
+				 ComponentMask());
+		}		
+
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
 			// create and solve linear system
@@ -918,8 +975,8 @@ int main() {
 	try {
 		deallog.depth_console(2);
 
-		const std::string problem_name = "analytic";
-		const int dim = 1; //2;
+		const std::string problem_name = "BangerthGeigerRannacher"; //"analytic";
+		const int dim = 2;
 
 		// run the simulation
 		SpaceTime<dim> space_time_problem(
