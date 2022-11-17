@@ -1,4 +1,5 @@
 import sys
+import os
 import numpy as np
 import scipy.interpolate
 import matplotlib.pyplot as plt
@@ -6,16 +7,21 @@ import matplotlib.pyplot as plt
 assert len(sys.argv) == 2, "You need to enter the path to the solution!"
 path = sys.argv[1]
 
+def load_all_vectors(path, pattern):
+  file_names = [f for f in os.listdir(path) if pattern in f]
+  vectors = [np.loadtxt(f"{path}/{file_name}") for file_name in file_names]
+  return np.hstack(vectors)
+
 # space-time solution vectors
 # displacement:
-solution_u = np.loadtxt(path + "/solution_u.txt")
+solution_u = load_all_vectors(path, "solution_u_")
 # velocity:
-solution_v = np.loadtxt(path + "/solution_v.txt")
+solution_v = load_all_vectors(path, "solution_v_")
 
 # coordinates
 coordinates_x = np.loadtxt(path + "/coordinates_x.txt")
 x_min, x_max = np.min(coordinates_x), np.max(coordinates_x)
-coordinates_t = np.loadtxt(path + "/coordinates_t.txt")
+coordinates_t = load_all_vectors(path, "coordinates_t_")
 t_min, t_max = np.min(coordinates_t), np.max(coordinates_t)
 coordinates = np.vstack((
     np.tensordot(coordinates_t, np.ones_like(coordinates_x), 0).flatten(),

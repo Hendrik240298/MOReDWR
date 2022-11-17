@@ -22,10 +22,14 @@
  *          Guido Kanschat, 2011
  *
  * ---------------------------------------------------------------------
- * TENSOR-PRODUCT SPACE-TIME FINITE ELEMENTS:
- * ==========================================
+ * TENSOR-PRODUCT SPACE-TIME FINITE ELEMENTS W/ TIME-SLABBING:
+ * ===========================================================
  * Tensor-product space-time code for the wave equation with Q^s finite elements in space and Q^r finite elements in time: cG(s)cG(r)
- *
+ * The time interval I = (0,T) is being divided into subintervals I_1, I_2, ..., I_M 
+ * and then instead of solving the PDE all at once on the full space-time domain Q := I x Ω
+ * we solve sequentially (forward-in-time) on time slabs Q_n := I_n x Ω to reduce the size of the linear systems.
+ * This also allows the usage of different temporal polynomial degrees on each slab, i.e. r := (r_1, r_2, ..., r_M) is now a multiindex.
+ * 
  * Author: Julian Roth, 2022
  * 
  * For more information on tensor-product space-time finite elements please also check out the DTM-project by Uwe Köcher and contributors.
@@ -66,6 +70,7 @@
 #include <numeric>
 #include <string>
 #include <set>
+#include <memory>
 #include <sys/stat.h> // for mkdir
 
 using namespace dealii;
@@ -73,6 +78,8 @@ using namespace dealii;
 template<int dim>
 class InitialValues: public Function<dim> {
 public:
+	InitialValues() : Function<dim>(2) {}
+
 	virtual double value(const Point<dim> &p,
 			const unsigned int component) const override;
 
@@ -100,6 +107,8 @@ void InitialValues<dim>::vector_value (const Point<dim> &p,
 template<int dim>
 class Solution: public Function<dim> {
 public:
+	Solution() : Function<dim>(2) {}
+
 	virtual double value(const Point<dim> &p,
 			const unsigned int component = 0) const override;
 
@@ -143,7 +152,7 @@ template<int dim>
 class RightHandSide: public Function<dim> {
 public:
 	RightHandSide() :
-			Function<dim>() {
+			Function<dim>(2) {
 	}
 	virtual double value(const Point<dim> &p,
 			const unsigned int component = 0) const;
@@ -166,39 +175,55 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 
 }
 
+class Slab {
+public:
+  // constructor
+  Slab(unsigned int r, double start_time, double end_time);
+  
+  // variables
+  Triangulation<1> time_triangulation;
+  FE_Q<1>          time_fe;
+  DoFHandler<1>    time_dof_handler;
+  
+  double start_time, end_time;
+};
+
+Slab::Slab(unsigned int r, double start_time, double end_time) :
+    time_fe(r), time_dof_handler(time_triangulation), start_time(start_time), end_time(end_time) {
+}  
+
 template<int dim>
 class SpaceTime {
 public:
-	SpaceTime(int s, int r, double start_time = 0.0, double end_time = 1.0,
-		unsigned int max_n_refinement_cycles = 3, bool refine_space = true, bool refine_time = true);
+	SpaceTime(int s, std::vector<unsigned int> r, std::vector<double> time_points = {0., 1.},
+		unsigned int max_n_refinement_cycles = 3, bool refine_space = true, bool refine_time = true, bool split_slabs = true);
 	void run();
 	void print_grids(std::string file_name_space, std::string file_name_time);
 	void print_convergence_table();
 
 private:
 	void make_grids();
-	void setup_system();
-	void assemble_system();
+	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
+	void assemble_system(std::shared_ptr<Slab> &slab);
 	void apply_initial_condition();
-	void apply_boundary_conditions();
+	void apply_boundary_conditions(std::shared_ptr<Slab> &slab);
 	void solve();
-	void output_results(const unsigned int refinement_cycle) const;
-	void process_solution(const unsigned int cycle);
+	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const;
+	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
 	
 	// space
 	Triangulation<dim>            space_triangulation;		
-	FESystem<dim>                space_fe;
+	FESystem<dim>                 space_fe;
 	DoFHandler<dim>               space_dof_handler;
 
 	// time
-	Triangulation<1> time_triangulation;
-	FE_Q<1>          time_fe;
-	DoFHandler<1>    time_dof_handler;
+	std::vector< std::shared_ptr<Slab> > slabs;
 		
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
 	Vector<double> solution;
+	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
 
 	const FEValuesExtractors::Scalar displacement = 0;
@@ -208,21 +233,35 @@ private:
 
 	double start_time, end_time;
 	std::set< std::pair<double, unsigned int> > time_support_points; // (time_support_point, support_point_index)
+	unsigned int n_snapshots;
 	unsigned int max_n_refinement_cycles;
-	bool refine_space, refine_time;
+	bool refine_space, refine_time, split_slabs;
+	double L2_error;
 	std::vector<double> L2_error_vals;
+	unsigned int n_active_time_cells;
+	unsigned int n_time_dofs;
 	ConvergenceTable convergence_table;
 };
 
 template<int dim>
-SpaceTime<dim>::SpaceTime(int s, int r, double start_time, double end_time,
-		unsigned int max_n_refinement_cycles, bool refine_space, bool refine_time) :
+SpaceTime<dim>::SpaceTime(int s, std::vector<unsigned int> r, std::vector<double> time_points,
+		unsigned int max_n_refinement_cycles, bool refine_space, bool refine_time, 
+                bool split_slabs) :
 		 space_fe(/*u*/ FE_Q<1> (s),1, /*v*/ FE_Q<1> (s),1),
 		 space_dof_handler(space_triangulation),
-		 time_fe(r), time_dof_handler(time_triangulation),
-		 start_time(start_time), end_time(end_time), 
 		 max_n_refinement_cycles(max_n_refinement_cycles),
-		 refine_space(refine_space), refine_time(refine_time) {
+		 refine_space(refine_space), refine_time(refine_time),
+		 split_slabs(split_slabs) {
+    // time_points = [t_0, t_1, ..., t_M]
+    // r = [r_1, r_2, ..., r_M] with r_k is the temporal FE degree on I_k = (t_{k-1},t_k]
+    Assert(r.size()+1 == time_points.size(), ExcDimensionMismatch(r.size()+1, time_points.size()));
+    
+    // create slabs
+    for (unsigned int k = 0; k < r.size(); ++k)
+      slabs.push_back(std::make_shared<Slab> (r[k], time_points[k], time_points[k+1]));
+    
+    start_time = time_points[0];
+    end_time   = time_points[time_points.size()-1];
 }
 
 void print_1d_grid(std::ofstream &out, Triangulation<1> &triangulation, double start, double end) {
@@ -239,6 +278,26 @@ void print_1d_grid(std::ofstream &out, Triangulation<1> &triangulation, double s
 	out << "</svg>" << std::endl;
 }
 
+void print_1d_grid_slabwise(std::ofstream &out, std::vector< std::shared_ptr<Slab> > &slabs, double start, double end) {
+	out << "<svg width='1200' height='200' xmlns='http://www.w3.org/2000/svg' version='1.1'>" << std::endl;
+	out << "<rect fill='white' width='1200' height='200'/>" << std::endl;
+	for (unsigned int k=0; k < slabs.size(); ++k)
+	  out << "  <line x1='" << (int)(1000*(slabs[k]->start_time-start)/(end-start)) + 100 <<"' y1='100' x2='" 
+		    << (int)(1000*(slabs[k]->end_time-start)/(end-start)) + 100 <<"' y2='100' style='stroke:" 
+		    << ((k % 2) ? "blue" : "black") << ";stroke-width:4'/>" << std::endl; // timeline 
+	  
+	//out << "  <line x1='100' y1='100' x2='1100' y2='100' style='stroke:black;stroke-width:4'/>" << std::endl; // timeline
+	out << "  <line x1='100' y1='125' x2='100' y2='75' style='stroke:black;stroke-width:4'/>" << std::endl; // first tick
+
+	// ticks
+	for (auto &slab : slabs)
+	  for (auto &cell : slab->time_triangulation.active_cell_iterators())
+		out << "  <line x1='" << (int)(1000*(cell->vertex(1)[0]-start)/(end-start)) + 100 <<"' y1='125' x2='" 
+		    << (int)(1000*(cell->vertex(1)[0]-start)/(end-start)) + 100 <<"' y2='75' style='stroke:black;stroke-width:4'/>" << std::endl;
+
+	out << "</svg>" << std::endl;
+}
+
 template<>
 void SpaceTime<2>::print_grids(std::string file_name_space, std::string file_name_time) {
 	// space	
@@ -248,7 +307,7 @@ void SpaceTime<2>::print_grids(std::string file_name_space, std::string file_nam
 		
 	// time	
 	std::ofstream out_time(file_name_time);
-	print_1d_grid(out_time, time_triangulation, start_time, end_time);
+	print_1d_grid_slabwise(out_time, slabs, start_time, end_time);
 }
 
 template<>
@@ -259,14 +318,15 @@ void SpaceTime<1>::print_grids(std::string file_name_space, std::string file_nam
 		
 	// time	
 	std::ofstream out_time(file_name_time);
-	print_1d_grid(out_time, time_triangulation, start_time, end_time);
+	print_1d_grid_slabwise(out_time, slabs, start_time, end_time);
 }
 
 template<>
 void SpaceTime<1>::make_grids() {
 	// create grids
 	GridGenerator::hyper_rectangle(space_triangulation, Point<1>(0.), Point<1>(1.));
-	GridGenerator::hyper_rectangle(time_triangulation, Point<1>(start_time), Point<1>(end_time));
+	for (auto &slab : slabs)
+	  GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
 	
 	// ensure that both points of the boundary have boundary_id == 0
 	for (auto &cell : space_triangulation.cell_iterators())
@@ -276,7 +336,8 @@ void SpaceTime<1>::make_grids() {
 
 	// globally refine the grids
 	space_triangulation.refine_global(2);
-	time_triangulation.refine_global(0); //2);
+	for (auto &slab : slabs)
+	  slab->time_triangulation.refine_global(0);
 }
 
 template<>
@@ -285,31 +346,28 @@ void SpaceTime<2>::make_grids() {
 
 	// create grids
 	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(0., 0.), Point<2>(1., 1.));
-	GridGenerator::hyper_rectangle(time_triangulation, Point<1>(start_time), Point<1>(end_time));
+	for (auto &slab : slabs)
+	  GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
 
 	// globally refine the grids
 	space_triangulation.refine_global(1);
-	time_triangulation.refine_global(1);
+	for (auto &slab : slabs)
+	  slab->time_triangulation.refine_global(5);
 }
 
 template<int dim>
-void SpaceTime<dim>::setup_system() {
-	space_dof_handler.distribute_dofs(space_fe);
-	time_dof_handler.distribute_dofs(time_fe);
+void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
+	std::cout << "Slab Q_" << k << " = Ω x (" << slab->start_time  << "," << slab->end_time << "):" << std::endl;
+	std::cout << "   Finite Elements: cG(" << space_fe.degree << ") (space), cG("
+		  << slab->time_fe.get_degree() << ") (time)" << std::endl;
 
-	// Renumber spatials DoFs into displacement and velocity DoFs
-  	DoFRenumbering::component_wise (space_dof_handler, {0, 1});
+	slab->time_dof_handler.distribute_dofs(slab->time_fe);
 
-  	// two blocks: displacement and velocity
-	const std::vector<types::global_dof_index> dofs_per_block = DoFTools::count_dofs_per_fe_block(space_dof_handler, {0, 1});
-	n_space_u = dofs_per_block[0];
-	n_space_v = dofs_per_block[1];
-
-	std::cout << "Number of active cells: " << space_triangulation.n_active_cells() << " (space), "
-		  << time_triangulation.n_active_cells() << " (time)" << std::endl;
-	std::cout << "Number of degrees of freedom: " << space_dof_handler.n_dofs() 
+	std::cout << "   Number of active cells: " << space_triangulation.n_active_cells() << " (space), "
+		  << slab->time_triangulation.n_active_cells() << " (time)" << std::endl;
+	std::cout << "   Number of degrees of freedom: " << space_dof_handler.n_dofs() 
 	          << " (" << n_space_u << '+' << n_space_v <<  ')' << " (space), "
-		  << time_dof_handler.n_dofs() << " (time)" << std::endl;
+		  << slab->time_dof_handler.n_dofs() << " (time)" << std::endl;
   
 	/////////////////////////////////////////////////////////////////////////////////////////
 	// space-time sparsity pattern = tensor product of spatial and temporal sparsity pattern
@@ -325,11 +383,11 @@ void SpaceTime<dim>::setup_system() {
 	space_sparsity_pattern.print_svg(out_space_sparsity);
 
 	// temporal sparsity pattern
-	DynamicSparsityPattern time_dsp(time_dof_handler.n_dofs());
-	DoFTools::make_sparsity_pattern(time_dof_handler, time_dsp);
+	DynamicSparsityPattern time_dsp(slab->time_dof_handler.n_dofs());
+	DoFTools::make_sparsity_pattern(slab->time_dof_handler, time_dsp);
 	
 	// space-time sparsity pattern
-	DynamicSparsityPattern dsp(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
+	DynamicSparsityPattern dsp(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	for (auto &space_entry : space_dsp)
 	  for (auto &time_entry : time_dsp)
 	    dsp.add(
@@ -343,12 +401,12 @@ void SpaceTime<dim>::setup_system() {
 	
 	system_matrix.reinit(sparsity_pattern);
 	
-	solution.reinit(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
-	system_rhs.reinit(space_dof_handler.n_dofs() * time_dof_handler.n_dofs());
+	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 }
 
 template<int dim>
-void SpaceTime<dim>::assemble_system() {
+void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 	RightHandSide<dim> right_hand_side;
 
 	// space
@@ -360,11 +418,11 @@ void SpaceTime<dim>::assemble_system() {
 	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
 	
 	// time
-	QGauss<1> time_quad_formula(time_fe.degree + 2);
-	FEValues<1> time_fe_values(time_fe, time_quad_formula,
+	QGauss<1> time_quad_formula(slab->time_fe.degree + 2);
+	FEValues<1> time_fe_values(slab->time_fe, time_quad_formula,
 			update_values | update_gradients | update_quadrature_points
 					| update_JxW_values);
-	const unsigned int time_dofs_per_cell = time_fe.n_dofs_per_cell();
+	const unsigned int time_dofs_per_cell = slab->time_fe.n_dofs_per_cell();
 	std::vector<types::global_dof_index> time_local_dof_indices(time_dofs_per_cell);
 	
 	// local contributions on space-time cell
@@ -376,7 +434,7 @@ void SpaceTime<dim>::assemble_system() {
 	for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
 	  space_fe_values.reinit(space_cell);
 	  space_cell->get_dof_indices(space_local_dof_indices);
-	  for (const auto &time_cell : time_dof_handler.active_cell_iterators()) {
+	  for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
 	    time_fe_values.reinit(time_cell);
 	    time_cell->get_dof_indices(time_local_dof_indices);
 	    
@@ -447,23 +505,12 @@ void SpaceTime<dim>::assemble_system() {
 	}
 	
 	apply_initial_condition();
-	apply_boundary_conditions();
+	apply_boundary_conditions(slab);
 }
 
 template<int dim>
 void SpaceTime<dim>::apply_initial_condition() {
     // apply initial value on linear system
-  
-    // no hanging node constraints ´
-    AffineConstraints<double> constraints;
-    constraints.close();
-  
-    // compute initial value vector
-    Vector<double> initial_solution(space_dof_handler.n_dofs());
-    VectorTools::interpolate(space_dof_handler,
-                         InitialValues<dim>(),
-                         initial_solution,
-			 ComponentMask());
   
     // clear first N_space rows of system matrix
     for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
@@ -479,17 +526,14 @@ void SpaceTime<dim>::apply_initial_condition() {
 }	
 
 template<int dim>
-void SpaceTime<dim>::apply_boundary_conditions() {
+void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab) {
    // apply the spatial Dirichlet boundary conditions at each temporal DoF
-   Solution<dim> solution_func;
+   Solution<dim> solution_func; 
    
-   // remove old temporal support points
-   time_support_points.clear();
+   FEValues<1> time_fe_values(slab->time_fe, Quadrature<1>(slab->time_fe.get_unit_support_points()), update_quadrature_points);
+   std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());
    
-   FEValues<1> time_fe_values(time_fe, Quadrature<1>(time_fe.get_unit_support_points()), update_quadrature_points);
-   std::vector<types::global_dof_index> time_local_dof_indices(time_fe.n_dofs_per_cell());
-   
-   for (const auto &time_cell : time_dof_handler.active_cell_iterators()) {
+   for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
     time_fe_values.reinit(time_cell);
     time_cell->get_dof_indices(time_local_dof_indices);
     
@@ -528,7 +572,7 @@ void SpaceTime<dim>::solve() {
 }
 
 template<>
-void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
+void SpaceTime<1>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) const {
 	// create output directory if necessary
 	std::string output_dir = "output/dim=1/cycle=" + std::to_string(refinement_cycle) + "/";
 	for (auto dir : {"output/", "output/dim=1/", output_dir.c_str()})
@@ -537,11 +581,11 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
 	//////////////////////////////////////////////////////////////////////////////
 	// output space-time vectors for displacement and velocity separately as .txt
 	//
-	Vector<double> solution_u(n_space_u * time_dof_handler.n_dofs());
-	Vector<double> solution_v(n_space_v * time_dof_handler.n_dofs());
+	Vector<double> solution_u(n_space_u * slab->time_dof_handler.n_dofs());
+	Vector<double> solution_v(n_space_v * slab->time_dof_handler.n_dofs());
 	unsigned int index_u = 0;
 	unsigned int index_v = 0;
-	for (unsigned int ii = 0; ii < time_dof_handler.n_dofs(); ++ii)
+	for (unsigned int ii = 0; ii < slab->time_dof_handler.n_dofs(); ++ii)
 	{
           // displacement
 	  for (unsigned int j=ii*space_dof_handler.n_dofs(); j < ii*space_dof_handler.n_dofs()+n_space_u; ++j)
@@ -556,9 +600,9 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
 	     index_v++;
 	  }
 	}
-	std::ofstream solution_u_out(output_dir + "solution_u.txt");
+	std::ofstream solution_u_out(output_dir + "solution_u_" + Utilities::int_to_string(slab_number, 5) + "txt");
 	solution_u.print(solution_u_out, /*precision*/16);
-	std::ofstream solution_v_out(output_dir + "solution_v.txt");
+	std::ofstream solution_v_out(output_dir + "solution_v_" + Utilities::int_to_string(slab_number, 5) + "txt");
 	solution_v.print(solution_v_out, /*precision*/16);
 
 	///////////////////////////////////////////
@@ -588,27 +632,24 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) const {
 	x_out << std::endl;
 
 	// time
-	std::vector<Point<1>> time_support_points(time_dof_handler.n_dofs());
+	std::vector<Point<1>> time_support_points(slab->time_dof_handler.n_dofs());
 	DoFTools::map_dofs_to_support_points(
 		MappingQ1<1,1>(),                    
-		time_dof_handler,
+		slab->time_dof_handler,
 		time_support_points
 	); 
 
-	std::ofstream t_out(output_dir + "coordinates_t.txt");
+	std::ofstream t_out(output_dir + "coordinates_t_" + Utilities::int_to_string(slab_number, 5) + "txt");
 	t_out.precision(9);
 	t_out.setf(std::ios::scientific, std::ios::floatfield);
 
 	for (auto point : time_support_points)
 		t_out << point[0] << ' ';
 	t_out << std::endl;
-	
-	std::string plotting_cmd = "python3 plot_solution.py  " + output_dir;
-	system(plotting_cmd.c_str());
 }
 
-template<>
-void SpaceTime<2>::output_results(const unsigned int refinement_cycle) const {
+//template<>
+//void SpaceTime<2>::output_results(const unsigned int refinement_cycle) const {
 // TODO: implement output_results for 2+1D wave equation
 /*
 	// create output directory if necessary
@@ -643,17 +684,16 @@ void SpaceTime<2>::output_results(const unsigned int refinement_cycle) const {
 	  ++ii_ordered;
 	}
 */
-}
+//}
 
 template<int dim>
-void SpaceTime<dim>::process_solution(const unsigned int cycle) {
+void SpaceTime<dim>::process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab) {
 	Solution<dim> solution_func;
-	double L2_error = 0.;
 	
-	FEValues<1> time_fe_values(time_fe, QGauss<1>(time_fe.degree + 2), update_values | update_quadrature_points | update_JxW_values);
-	std::vector<types::global_dof_index> time_local_dof_indices(time_fe.n_dofs_per_cell());
+	FEValues<1> time_fe_values(slab->time_fe, QGauss<1>(slab->time_fe.degree + 2), update_values | update_quadrature_points | update_JxW_values);
+	std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());
 	
-	for (const auto &time_cell : time_dof_handler.active_cell_iterators()) {
+	for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
 	  time_fe_values.reinit(time_cell);
 	  time_cell->get_dof_indices(time_local_dof_indices);
 
@@ -690,22 +730,27 @@ void SpaceTime<dim>::process_solution(const unsigned int cycle) {
 	    L2_error += std::pow(L2_error_t_qq, 2) * time_fe_values.JxW(qq);
 	  }
 	}
-	
-	L2_error = std::sqrt(L2_error);
-	L2_error_vals.push_back(L2_error);
-	
-	// add values to 
-	const unsigned int n_active_cells = space_triangulation.n_active_cells() * time_triangulation.n_active_cells();
-	const unsigned int n_space_dofs   = space_dof_handler.n_dofs();
-	const unsigned int n_time_dofs    = time_dof_handler.n_dofs();
-	const unsigned int n_dofs         = n_space_dofs * n_time_dofs;
 
-	convergence_table.add_value("cycle", cycle);
-	convergence_table.add_value("cells", n_active_cells);
-	convergence_table.add_value("dofs", n_dofs);
-	convergence_table.add_value("dofs(space)", n_space_dofs);
-	convergence_table.add_value("dofs(time)", n_time_dofs);
-	convergence_table.add_value("L2", L2_error);
+	n_active_time_cells += slab->time_triangulation.n_active_cells();
+	n_time_dofs += (slab->time_dof_handler.n_dofs()-1); // first time DoF is also part of last slab
+	
+	if (last_slab)
+	{
+		L2_error = std::sqrt(L2_error);
+		L2_error_vals.push_back(L2_error);
+		
+		// add values to 
+		const unsigned int n_active_cells = space_triangulation.n_active_cells() * n_active_time_cells;
+		const unsigned int n_space_dofs   = space_dof_handler.n_dofs();
+		const unsigned int n_dofs         = n_space_dofs * n_time_dofs;
+
+		convergence_table.add_value("cycle", cycle);
+		convergence_table.add_value("cells", n_active_cells);
+		convergence_table.add_value("dofs", n_dofs);
+		convergence_table.add_value("dofs(space)", n_space_dofs);
+		convergence_table.add_value("dofs(time)", n_time_dofs);
+		convergence_table.add_value("L2", L2_error);
+	}
 }
 
 template<int dim>
@@ -767,22 +812,93 @@ void SpaceTime<dim>::run() {
 				<< "-------------------------------------------------------------"
 				<< std::endl;
 
-		// create and solve linear system
-		setup_system();
-		assemble_system();
-		solve();
-		
-		// output results as SVG or VTK files
-		output_results(cycle); 
+		// reset values from last refinement cycle
+		n_snapshots = 0;
+		n_active_time_cells = 0;
+		n_time_dofs = 1;
+		L2_error = 0.;
 
-		// Compute the error to the analytical solution
-		process_solution(cycle);
+		////////////////////////////////////////////
+		// initial value: u(0)
+		//
+		space_dof_handler.distribute_dofs(space_fe);
+
+		// Renumber spatials DoFs into displacement and velocity DoFs
+	  	DoFRenumbering::component_wise (space_dof_handler, {0, 1});
+
+	  	// two blocks: displacement and velocity
+		const std::vector<types::global_dof_index> dofs_per_block = DoFTools::count_dofs_per_fe_block(space_dof_handler, {0, 1});
+		n_space_u = dofs_per_block[0];
+		n_space_v = dofs_per_block[1];
+
+		// no hanging node constraints ´
+		AffineConstraints<double> constraints;
+		constraints.close();
+
+		// compute initial value vector
+		initial_solution.reinit(space_dof_handler.n_dofs());
+		VectorTools::interpolate(space_dof_handler,
+				 InitialValues<dim>(),
+				 initial_solution,
+				 ComponentMask());
+		
+		for (unsigned int k = 0; k < slabs.size(); ++k)
+		{
+			// create and solve linear system
+			setup_system(slabs[k], k+1);
+			assemble_system(slabs[k]);
+			solve();
+			
+			// output results as SVG or VTK files
+			output_results(slabs[k], cycle, k); 
+
+			// Compute the error to the analytical solution
+			process_solution(slabs[k], cycle, (k == slabs.size()-1));
+
+			///////////////////////
+			// prepare next slab
+			//
+			    
+			// get initial value for next slab
+			auto last_time_point = std::prev(time_support_points.end());
+			unsigned int ii = last_time_point->second;
+			for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+			  initial_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
+
+			// remove old temporal support points
+	   		time_support_points.clear();
+		}
+		
+		
+		if (dim == 1)
+		{
+			std::string output_dir = "output/dim=1/cycle=" + std::to_string(cycle) + "/";
+			std::string plotting_cmd = "python3 plot_solution.py  " + output_dir;
+			system(plotting_cmd.c_str());
+		}
 
 		// refine mesh
 		if (cycle < max_n_refinement_cycles - 1)
 		{
 		  space_triangulation.refine_global(refine_space);
-		  time_triangulation.refine_global(refine_time);
+		  if (split_slabs)
+		  {
+		    std::vector< std::shared_ptr<Slab> > split_slabs;
+		    for (auto &slab : slabs)
+		    {
+		      split_slabs.push_back(std::make_shared<Slab> (slab->time_fe.get_degree(), slab->start_time, 0.5*(slab->start_time+slab->end_time)));
+		      split_slabs.push_back(std::make_shared<Slab> (slab->time_fe.get_degree(), 0.5*(slab->start_time+slab->end_time), slab->end_time));
+		    }
+		    slabs = split_slabs;
+
+		    for (auto &slab : slabs)
+		      GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
+		  }
+		  else
+		  {
+		    for (auto &slab : slabs)
+		      slab->time_triangulation.refine_global(refine_time);
+		  }
 		}
 	}
 
@@ -795,36 +911,14 @@ int main() {
 
 		// run the simulation
 		SpaceTime<1> space_time_problem(
-		  1,     // s ->  spatial FE degree
-		  1, //2,     // r -> temporal FE degree
-		  0.,    // start_time
-		  4.,    // end_time,
-		  7,     // max_n_refinement_cycles,
-		  true,  // refine_space
-		  true   // refine_time
+		  1,                // s ->  spatial FE degree
+		  {1,1,1,1},        // r -> temporal FE degree
+		  {0.,1.,2.,3.,4.}, // end_time,
+		  7,                // max_n_refinement_cycles,
+		  true,             // refine_space
+		  true,             // refine_time
+		  true              // split_slabs
 		);
-		/*
-		SpaceTime<1> space_time_problem(
-		  1,     // s ->  spatial FE degree
-		  1,     // r -> temporal FE degree
-		  0.,    // start_time
-		  1.,    // end_time,
-		  3,     // max_n_refinement_cycles,
-		  true,  // refine_space
-		  true   // refine_time
-		);
-		*/
-		/*
-		SpaceTime<2> space_time_problem(
-		  1,     // s ->  spatial FE degree
-		  1,     // r -> temporal FE degree
-		  0.,    // start_time
-		  1.,    // end_time,
-		  3,     // max_n_refinement_cycles,
-		  true,  // refine_space
-		  true   // refine_time
-		);
-		*/
 		space_time_problem.run();
 
 		// save final grid
