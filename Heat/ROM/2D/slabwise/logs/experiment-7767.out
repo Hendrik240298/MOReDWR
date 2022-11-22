@@ -1,0 +1,11 @@
+export PATH=/usr/local/bin:/usr/bin
+export CPATH=/opt/ifam/env/ifam-8.1.0-V1/include/
+export LIBRARY_PATH=/opt/ifam/env/ifam-8.1.0-V1/lib64/:/opt/ifam/env/ifam-8.1.0-V1/lib/
+export LD_LIBRARY_PATH=/opt/ifam/env/ifam-8.1.0-V1/lib64/:/opt/ifam/env/ifam-8.1.0-V1/lib/
+
+Executing: cd /home/ifam/fischer/Code/MORe_DWR/Heat/ROM/2D/slabwise/logs && python3 /home/ifam/fischer/Code/MORe_DWR/Heat/ROM/2D/slabwise/pod_rom_error.py
+
+------------
+| cycle=6: |
+------------
+
