@@ -11,12 +11,12 @@ import sys
 from iPOD import iPOD, ROM_update
 import imageio
 
-PLOTTING = False
+PLOTTING = True
 INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 CASE = ""  # "two" or "moving"
 OUTPUT_PATH = "../../../Data/2D/rotating_circle/slabwise/"
-cycle = "cycle=4"
+cycle = "cycle=2"
 SAVE_PATH = "../../../Data/2D/rotating_circle/slabwise/" + cycle + "/output_ROM/"
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
@@ -24,10 +24,8 @@ ENERGY_PRIMAL = 0.9999
 ENERGY_DUAL = 0.999999
 
 if PLOTTING:
-    try:
-        os.mkdir(SAVE_PATH)
-    except:
-        pass
+    if not os.path.exists(SAVE_PATH):
+        os.makedirs(SAVE_PATH)
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 # NO BC
@@ -228,9 +226,14 @@ for i in range(n_slabs):
     
     # compute adj solution   
     
-    # reduced_solutions_
-    # for forwardstep in range(3):
-        
+    forwarded_reduced_solutions = []
+    forwarded_reduced_solutions.append(reduced_solutions)
+    for forwardstep in range(3):
+        forwarded_reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i+forwardstep+1])
+        if i > 0:
+            forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-2])
+        forwarded_reduced_solutions.append(np.linalg.solve(reduced_system_matrix, forwarded_reduced_rhs))
+                                           
     reduced_dual_rhs = reduced_mass_matrix_no_bc.dot(reduced_solutions)
     reduced_dual_solutions = np.linalg.solve(reduced_dual_matrix,reduced_dual_rhs)
     projected_reduced_dual_solutions.append(space_time_pod_basis_dual.dot(reduced_dual_solutions))
