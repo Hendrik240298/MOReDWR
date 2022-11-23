@@ -16,7 +16,7 @@ INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
 CASE = ""  # "two" or "moving"
 OUTPUT_PATH = "../../../Data/2D/rotating_circle/slabwise/"
-cycle = "cycle=2"
+cycle = "cycle=3"
 SAVE_PATH = "../../../Data/2D/rotating_circle/slabwise/" + cycle + "/output_ROM/"
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
@@ -226,13 +226,14 @@ for i in range(n_slabs):
     
     # compute adj solution   
     
-    forwarded_reduced_solutions = []
-    forwarded_reduced_solutions.append(reduced_solutions)
-    for forwardstep in range(3):
-        forwarded_reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i+forwardstep+1])
-        if i > 0:
-            forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-2])
-        forwarded_reduced_solutions.append(np.linalg.solve(reduced_system_matrix, forwarded_reduced_rhs))
+    # forwarded_reduced_solutions = []
+    # forwarded_reduced_solutions.append(reduced_solutions)
+    # for forwardstep in range(3):
+    #     if forwardstep >= n_slabs:
+    #     forwarded_reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i+forwardstep+1])
+    #     if i > 0:
+    #         forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-2])
+    #     forwarded_reduced_solutions.append(np.linalg.solve(reduced_system_matrix, forwarded_reduced_rhs))
                                            
     reduced_dual_rhs = reduced_mass_matrix_no_bc.dot(reduced_solutions)
     reduced_dual_solutions = np.linalg.solve(reduced_dual_matrix,reduced_dual_rhs)
