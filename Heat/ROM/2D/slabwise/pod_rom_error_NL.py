@@ -23,6 +23,11 @@ SAVE_PATH = "../../../Data/2D/rotating_circle/slabwise/" + cycle + "/output_ROM/
 ENERGY_PRIMAL = 0.9999
 ENERGY_DUAL = 0.999999
 
+if PLOTTING:
+    try:
+        os.mkdir(SAVE_PATH)
+    except:
+        pass
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 # NO BC
@@ -139,89 +144,6 @@ for i in range(n_slabs):
 time_dofs_per_time_interval = int(n_dofs["time"] / n_slabs)
 dofs_per_time_interval = time_dofs_per_time_interval * n_dofs["space"]
 
-# %% ROM update
-
-
-# def ROM_update(
-#         pod_basis,
-#         space_time_pod_basis,
-#         reduced_system_matrix,
-#         reduced_jump_matrix,
-#         last_projected_reduced_solution):
-#     # creating primal rhs and applying BC to it
-    
-#     extime_solve_FOM = 0.0
-#     extime_iPOD = 0.0
-#     extime_matrix = 0.0
-    
-#     start_time = time.time()
-#     primal_rhs = rhs_no_bc[i].copy()
-#     primal_rhs -= jump_matrix_no_bc.dot(last_projected_reduced_solution)
-#     for row in boundary_ids:
-#         primal_rhs[row] = 0.  # NOTE: hardcoding homogeneous Dirichlet BC
-
-#     projected_reduced_solution = scipy.sparse.linalg.spsolve(
-#         primal_matrix, primal_rhs)
-#     extime_solve_FOM = time.time() - start_time
-    
-#     start_time = time.time()
-#     singular_values_tmp = singular_values
-#     total_energy_tmp = total_energy
-#     bunch_tmp = np.empty([0, 0])
-#     if ((
-#             projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer()):
-#         # onyl use first solution of slab since we assume that solutions are quite similar
-#         for slab_step in range(
-#                 # 1):
-#                 int(projected_reduced_solution.shape[0] / n_dofs["space"])):
-#             pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, projected_reduced_solution[range(
-#                 slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp)
-#     else:
-#         print(
-#             (projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer())
-#         print("Error building slapwise POD")
-#     extime_iPOD = time.time() - start_time
-    
-#     start_time = time.time()
-#     # change from the FOM to the POD basis
-#     space_time_pod_basis = scipy.sparse.block_diag(
-#         [pod_basis] * time_dofs_per_time_interval)
-    
-#     # start_time1 = time.time()
-#     # reduced_system_matrix = space_time_pod_basis.T.dot(
-#     #     matrix_no_bc.dot(space_time_pod_basis))
-#     reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-#     start_time1_1 = time.time()
-#     reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-#     reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-#     reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-#     reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
-    
-#     # start_time2 = time.time()
-#     # reduced_jump_matrix = space_time_pod_basis.T.dot(
-#     #     jump_matrix_no_bc.dot(space_time_pod_basis))
-#     reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-#     start_time2_2 = time.time()
-#     reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-#     reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-#     reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-#     reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
- 
-    
-    
-#     # print(f"ST-POD Basis: {start_time1-start_time}")
-#     # # print(f"Red SM:       {start_time1_1-start_time1}")
-#     # print(f"Red SM - bw:  {start_time2-start_time1_1}")
-#     # # print(f"Red JM:       {start_time2_2-start_time2}")
-#     # print(f"Red JM -bw:   {time.time()-start_time2_2}")
-#     extime_matrix = time.time() - start_time
-    
-#     # print("fom:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
-#     # print("iPOD:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
-#     # print("mat:   " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
-#     return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
-
-
 # %% initilaize ROM framework
 total_energy = 0
 pod_basis = np.empty([0, 0])
@@ -305,11 +227,15 @@ for i in range(n_slabs):
     extime_solve += time.time() - start_time
     
     # compute adj solution   
-
+    
+    # reduced_solutions_
+    # for forwardstep in range(3):
+        
     reduced_dual_rhs = reduced_mass_matrix_no_bc.dot(reduced_solutions)
     reduced_dual_solutions = np.linalg.solve(reduced_dual_matrix,reduced_dual_rhs)
     projected_reduced_dual_solutions.append(space_time_pod_basis_dual.dot(reduced_dual_solutions))
     
+    # reduced_solutions_old = reduced_solutions
     # dual_rhs = mass_matrix_no_bc.dot(projected_reduced_solutions[-1])
     # # dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(last_dual_solution)
     # for row in boundary_ids:
