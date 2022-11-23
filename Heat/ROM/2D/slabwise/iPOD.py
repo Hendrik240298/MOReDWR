@@ -4,9 +4,9 @@ import scipy.sparse.linalg
 import scipy.linalg
 import time
 
-def iPOD(POD, bunch, singular_values, snapshot, total_energy):
+def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
     bunch_size = 2
-    energy_content = 0.9999 #1 -1e-8 # 0.9999
+    # energy_content = 0.9999 #1 -1e-8 # 0.9999
     row, col_POD = POD.shape
 
     if (bunch.shape[1] == 0):
@@ -76,7 +76,8 @@ def ROM_update(
         total_energy,
         n_dofs,
         time_dofs_per_time_interval,
-        matrix_no_bc):
+        matrix_no_bc,
+        energy_content):
     # creating primal rhs and applying BC to it
     
     extime_solve_FOM = 0.0
@@ -103,7 +104,7 @@ def ROM_update(
                 # 1):
                 int(projected_reduced_solution.shape[0] / n_dofs["space"])):
             pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, projected_reduced_solution[range(
-                slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp)
+                slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp,energy_content)
     else:
         print(
             (projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer())
