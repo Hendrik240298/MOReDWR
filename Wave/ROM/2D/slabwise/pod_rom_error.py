@@ -11,14 +11,58 @@ import sys
 #from iPOD import iPOD
 import imageio
 
+def save_vtk(file_name, solution, grid, cycle=None, time=None):
+    lines = [
+        "# vtk DataFile Version 3.0",
+	"PDE SOLUTION",
+        "ASCII",
+        "DATASET UNSTRUCTURED_GRID",
+	""
+    ]
+
+    if (cycle != None or time != None):
+        lines.append(f"FIELD FieldData {(cycle != None) + (time != None)}")
+        if (cycle != None):
+            lines.append("CYCLE 1 1 int")
+            lines.append(str(cycle))
+        if (time != None):
+            lines.append("TIME 1 1 double")
+            lines.append(str(time))
+
+    lines += grid
+
+    for key, value in solution.items():
+        lines.append(f"SCALARS {key} double 1")
+        lines.append("LOOKUP_TABLE default")
+        lines.append(" ".join(np.round(value, decimals=7).astype(np.double).astype(str)) + " ")
+
+    with open(file_name, "w") as file:
+        file.write("\n".join(lines))
+
 PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 CASE = ""  # "rotating_circle"
 OUTPUT_PATH = "../../../Data/2D/BangerthGeigerRannacher/"
-cycle = "cycle=4"
+cycle = "cycle=5"
 SAVE_PATH = "../../../Data/2D/BangerthGeigerRannacher/" + cycle + "/output_ROM/"
 
-# print(os.listdir(OUTPUT_PATH))
+# creating grid and dof_matrix for vtk output
+grid = []
+with open(OUTPUT_PATH + cycle + "/solution00000.vtk", "r") as f:
+    writing = False
+    for line in f:
+        if (not writing and line.startswith("POINTS")):
+            writing = True
+        if writing:
+            grid.append(line.strip("\n"))
+            if line.startswith("POINT_DATA"):
+                break
+#print(grid)
+dof_vector = np.loadtxt(OUTPUT_PATH + cycle + "/dof.txt").astype(int)
+dof_matrix = scipy.sparse.dok_matrix((dof_vector.shape[0],dof_vector.max()+1))
+for i, j in enumerate(list(dof_vector)):
+   dof_matrix[i,j] = 1.
+
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 # NO BC
@@ -70,10 +114,18 @@ coordinates = np.vstack((
 )).T
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
 
+"""
+# create PyVista grid from coordinates_x
+grid = pv.PolyData(np.hstack([coordinates_x.T, np.zeros((coordinates_x.shape[1],1))])).cast_to_unstructured_grid()
+grid.add_field_data(np.arange(coordinates_x.shape[1]), 'my-field-data')
+grid.save("grid.vtk") #, binary=False)
+"""
+
 # ------------
 # %% primal FOM solve
 start_execution = time.time()
 last_primal_solution = np.zeros_like(rhs_no_bc[0])
+print(last_primal_solution.shape)
 last_primal_solution[n_space_dofs:] = initial_solution[:]
 primal_solutions = []
 for i in range(n_slabs):
@@ -90,7 +142,11 @@ end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
 print("FOM time:   " + str(execution_time_FOM))
 
+print("n_dofs[space] =", n_dofs["space"])
+for i, primal_solution in enumerate(primal_solutions):
+	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
 
+"""
 # plotting the primal FOM solution
 if PLOTTING:
     def primal_gif(primal_solution):
@@ -132,5 +188,6 @@ if PLOTTING:
 
     imageio.mimsave('./primal_solution.gif', [primal_gif(primal_solution)
                     for primal_solution in primal_solutions], fps=3)
+"""
 
 print("\n\nTO DO @Hendrik")

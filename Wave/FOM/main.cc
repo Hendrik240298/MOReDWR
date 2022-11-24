@@ -759,6 +759,32 @@ template<>
 void SpaceTime<2>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) {
 	std::string output_dir = "../Data/2D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
   
+	if (slab_number == 0)
+	{
+		std::ofstream dof_output(output_dir + "dof.txt");
+
+		FEValues<2> space_fe_values(space_fe, Quadrature<2>(space_fe.get_unit_support_points()),
+			update_values | update_gradients | update_quadrature_points | update_JxW_values);
+		const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
+		std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
+
+		for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
+	  		space_fe_values.reinit(space_cell);
+	  		space_cell->get_dof_indices(space_local_dof_indices);
+	  
+	    
+			for (const unsigned int q : space_fe_values.quadrature_point_indices())
+			{
+				// space quadrature point
+				const auto x_q = space_fe_values.quadrature_point(q);
+				if (space_local_dof_indices[q] < n_space_u)
+					dof_output << space_local_dof_indices[q] << " ";
+					//std::cout << x_q[0] << " " << x_q[1] << " " << space_local_dof_indices[q] << std::endl;
+			}
+		}
+		dof_output << std::endl;
+	}
+
 	// output results as VTK files
 	unsigned int ii_ordered = 0;
 	for (auto time_point : time_support_points)
@@ -785,7 +811,7 @@ void SpaceTime<2>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	  
 	  std::vector<DataComponentInterpretation::DataComponentInterpretation> data_component_interpretation(1+1, DataComponentInterpretation::component_is_scalar);
 	  data_out.add_data_vector(space_solution, solution_names, DataOut<2>::type_dof_data, data_component_interpretation);
-	  data_out.build_patches();
+	  data_out.build_patches(1);
 	 
 	  data_out.set_flags(DataOutBase::VtkFlags(t_qq, ii));
 	  
@@ -995,7 +1021,7 @@ void SpaceTime<dim>::run() {
 		n_space_u = dofs_per_block[0];
 		n_space_v = dofs_per_block[1];
 
-		// no hanging node constraints ´
+		// no hanging node constraints 
 		AffineConstraints<double> constraints;
 		constraints.close();
 
