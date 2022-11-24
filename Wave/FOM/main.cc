@@ -304,6 +304,7 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> dual_matrix;
 	Vector<double> solution;
 	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
@@ -489,6 +490,10 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	sparsity_pattern.print_svg(out_sparsity);
 	
 	system_matrix.reinit(sparsity_pattern);
+	if (k == 1)
+	{
+	  dual_matrix.reinit(sparsity_pattern);
+	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
@@ -516,6 +521,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
+	FullMatrix<double> cell_dual_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
 
@@ -528,6 +534,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	    time_cell->get_dof_indices(time_local_dof_indices);
 	    
 	    cell_matrix = 0;
+	    cell_dual_matrix = 0;
 	    cell_rhs = 0;
 	    
 	    for (const unsigned int qq : time_fe_values.quadrature_point_indices())
@@ -554,6 +561,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		    // system matrix
 		    for (const unsigned int j : space_fe_values.dof_indices())
 		      for (const unsigned int jj : time_fe_values.dof_indices())
+		      {
 			cell_matrix(
 			  j + jj * space_dofs_per_cell,
 			  i + ii * space_dofs_per_cell
@@ -570,6 +578,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 			  - space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
 			  space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
 			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+
+			double indicator_function = 1.; // (space_cell->center()[0] < 0.) * (space_cell->center()[1] < 0.); //
+			cell_dual_matrix(
+			  j + jj * space_dofs_per_cell,
+			  i + ii * space_dofs_per_cell
+			) += indicator_function * (
+			  space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *     // ϕ^v_{i,ii}(t_qq, x_q)
+			  space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)       // ϕ^v_{j,jj}(t_qq, x_q)
+												  // +
+			  + space_fe_values[displacement].gradient(i, q) * time_fe_values.shape_value(ii, qq) *  // ∇_x ϕ^u_{i,ii}(t_qq, x_q)
+			  space_fe_values[displacement].gradient(j, q) * time_fe_values.shape_value(jj, qq)      // ∇_x ϕ^u_{j,jj}(t_qq, x_q)
+			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+		      }
 		  }
 	      }
 	    }
@@ -584,11 +605,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		// system matrix
 		for (const unsigned int j : space_fe_values.dof_indices())
 		  for (const unsigned int jj : time_fe_values.dof_indices())
+		  {
 		    system_matrix.add(
 		      space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
 		      space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
 		      cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
 		    );
+
+		    dual_matrix.add(
+		      space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+		      space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+		      cell_dual_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		    );
+		  }
 	      }
 	  }
 	}
@@ -601,6 +630,9 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	{
 	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
 	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
+
+	  std::ofstream dual_matrix_no_bc_out(output_dir + "dual_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(dual_matrix, dual_matrix_no_bc_out, /*precision*/16); 
 	  
 	  //std::ofstream mass_matrix_no_bc_out(output_dir + "mass_matrix_no_bc.txt");
 	  //print_as_numpy_arrays_high_resolution(mass_matrix, mass_matrix_no_bc_out, /*precision*/16);
