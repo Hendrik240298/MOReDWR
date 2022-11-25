@@ -75,6 +75,47 @@
 
 using namespace dealii;
 
+void print_as_numpy_arrays_high_resolution(SparseMatrix<double> &matrix,
+					    std::ostream &     out,
+                                            const unsigned int precision)
+{
+  AssertThrow(out.fail() == false, ExcIO());
+
+  out.precision(precision);
+  out.setf(std::ios::scientific, std::ios::floatfield);
+
+  std::vector<int> rows;
+  std::vector<int> columns;
+  std::vector<double> values;
+  rows.reserve(matrix.n_nonzero_elements());
+  columns.reserve(matrix.n_nonzero_elements());
+  values.reserve(matrix.n_nonzero_elements());
+
+  SparseMatrixIterators::Iterator< double, false > it = matrix.begin();
+  for (unsigned int i = 0; i < matrix.m(); i++) {
+ 	 for (it = matrix.begin(i); it != matrix.end(i); ++it) {
+ 		rows.push_back(i);
+ 		columns.push_back(it->column());
+		values.push_back(matrix.el(i,it->column()));
+ 	 }
+  }
+
+  for (auto d : values)
+    out << d << ' ';
+  out << '\n';
+
+  for (auto r : rows)
+    out << r << ' ';
+  out << '\n';
+
+  for (auto c : columns)
+    out << c << ' ';
+  out << '\n';
+  out << std::flush;
+
+  AssertThrow(out.fail() == false, ExcIO());
+}
+
 template<int dim>
 class InitialValues: public Function<dim> {
 public:
@@ -242,15 +283,16 @@ public:
 private:
 	void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
-	void assemble_system(std::shared_ptr<Slab> &slab);
+	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab);
 	void apply_initial_condition();
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab);
 	void solve();
 	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number);
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
-	
-	std::string problem_name;
+	void print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number);
 
+	std::string problem_name;
+	
 	// space
 	Triangulation<dim>            space_triangulation;		
 	FESystem<dim>                 space_fe;
@@ -262,6 +304,7 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> dual_matrix;
 	Vector<double> solution;
 	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
@@ -447,13 +490,17 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	sparsity_pattern.print_svg(out_sparsity);
 	
 	system_matrix.reinit(sparsity_pattern);
+	if (k == 1)
+	{
+	  dual_matrix.reinit(sparsity_pattern);
+	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 }
 
 template<int dim>
-void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
+void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab) {
 	RightHandSide<dim> right_hand_side;
 
 	// space
@@ -474,6 +521,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
+	FullMatrix<double> cell_dual_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
 
@@ -486,6 +534,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 	    time_cell->get_dof_indices(time_local_dof_indices);
 	    
 	    cell_matrix = 0;
+	    cell_dual_matrix = 0;
 	    cell_rhs = 0;
 	    
 	    for (const unsigned int qq : time_fe_values.quadrature_point_indices())
@@ -512,6 +561,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 		    // system matrix
 		    for (const unsigned int j : space_fe_values.dof_indices())
 		      for (const unsigned int jj : time_fe_values.dof_indices())
+		      {
 			cell_matrix(
 			  j + jj * space_dofs_per_cell,
 			  i + ii * space_dofs_per_cell
@@ -528,6 +578,19 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 			  - space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
 			  space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
 			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+
+			double indicator_function = 1.; // (space_cell->center()[0] < 0.) * (space_cell->center()[1] < 0.); //
+			cell_dual_matrix(
+			  j + jj * space_dofs_per_cell,
+			  i + ii * space_dofs_per_cell
+			) += indicator_function * (
+			  space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *     // ϕ^v_{i,ii}(t_qq, x_q)
+			  space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)       // ϕ^v_{j,jj}(t_qq, x_q)
+												  // +
+			  + space_fe_values[displacement].gradient(i, q) * time_fe_values.shape_value(ii, qq) *  // ∇_x ϕ^u_{i,ii}(t_qq, x_q)
+			  space_fe_values[displacement].gradient(j, q) * time_fe_values.shape_value(jj, qq)      // ∇_x ϕ^u_{j,jj}(t_qq, x_q)
+			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+		      }
 		  }
 	      }
 	    }
@@ -542,14 +605,46 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab) {
 		// system matrix
 		for (const unsigned int j : space_fe_values.dof_indices())
 		  for (const unsigned int jj : time_fe_values.dof_indices())
+		  {
 		    system_matrix.add(
 		      space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
 		      space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
 		      cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
 		    );
+
+		    dual_matrix.add(
+		      space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+		      space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+		      cell_dual_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+		    );
+		  }
 	      }
 	  }
 	}
+	
+	std::string output_dir = "../Data/" + std::to_string(dim) + "D/" + problem_name + "/cycle=" + std::to_string(cycle) + "/";
+	
+	/////////////////////////////////////////////
+	// save system matrix and rhs to file (NO BC)
+	if (first_slab)
+	{
+	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
+
+	  std::ofstream dual_matrix_no_bc_out(output_dir + "dual_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(dual_matrix, dual_matrix_no_bc_out, /*precision*/16); 
+	  
+	  //std::ofstream mass_matrix_no_bc_out(output_dir + "mass_matrix_no_bc.txt");
+	  //print_as_numpy_arrays_high_resolution(mass_matrix, mass_matrix_no_bc_out, /*precision*/16);
+	}
+	
+	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+	system_rhs.print(rhs_no_bc_out, /*precision*/16);
+	
+	//std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+	//dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
+	
+
 	
 	apply_initial_condition();
 	apply_boundary_conditions(slab);
@@ -696,6 +791,32 @@ template<>
 void SpaceTime<2>::output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number) {
 	std::string output_dir = "../Data/2D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
   
+	if (slab_number == 0)
+	{
+		std::ofstream dof_output(output_dir + "dof.txt");
+
+		FEValues<2> space_fe_values(space_fe, Quadrature<2>(space_fe.get_unit_support_points()),
+			update_values | update_gradients | update_quadrature_points | update_JxW_values);
+		const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
+		std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
+
+		for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
+	  		space_fe_values.reinit(space_cell);
+	  		space_cell->get_dof_indices(space_local_dof_indices);
+	  
+	    
+			for (const unsigned int q : space_fe_values.quadrature_point_indices())
+			{
+				// space quadrature point
+				const auto x_q = space_fe_values.quadrature_point(q);
+				if (space_local_dof_indices[q] < n_space_u)
+					dof_output << space_local_dof_indices[q] << " ";
+					//std::cout << x_q[0] << " " << x_q[1] << " " << space_local_dof_indices[q] << std::endl;
+			}
+		}
+		dof_output << std::endl;
+	}
+
 	// output results as VTK files
 	unsigned int ii_ordered = 0;
 	for (auto time_point : time_support_points)
@@ -722,7 +843,7 @@ void SpaceTime<2>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	  
 	  std::vector<DataComponentInterpretation::DataComponentInterpretation> data_component_interpretation(1+1, DataComponentInterpretation::component_is_scalar);
 	  data_out.add_data_vector(space_solution, solution_names, DataOut<2>::type_dof_data, data_component_interpretation);
-	  data_out.build_patches();
+	  data_out.build_patches(1);
 	 
 	  data_out.set_flags(DataOutBase::VtkFlags(t_qq, ii));
 	  
@@ -845,6 +966,50 @@ void SpaceTime<dim>::print_convergence_table() {
 }
 
 template<int dim>
+void SpaceTime<dim>::print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number)
+{ 
+  // space
+  std::vector<Point<dim>> space_support_points(space_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<dim,dim>(),                    
+    space_dof_handler,
+    space_support_points
+  ); 
+  
+  std::ofstream x_out(output_dir + "coordinates_x.txt");
+  x_out.precision(9);
+  x_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (int d = 0; d < dim; d++)
+  {
+    unsigned int i = 0;
+    for (auto point : space_support_points) {
+	if (i == n_space_u) // do not also output x-coordinates for the velocity, which are the same as for the displacement
+	   break;
+	x_out << point[d] << ' ';
+	i++;
+    }
+    x_out << std::endl;
+  }
+
+  // time
+  std::vector<Point<1>> time_support_points(slab->time_dof_handler.n_dofs());
+  DoFTools::map_dofs_to_support_points(
+    MappingQ1<1,1>(),                    
+    slab->time_dof_handler,
+    time_support_points
+  ); 
+  
+  std::ofstream t_out(output_dir + "coordinates_t_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+  t_out.precision(9);
+  t_out.setf(std::ios::scientific, std::ios::floatfield);
+  
+  for (auto point : time_support_points)
+      t_out << point[0] << ' ';
+  t_out << std::endl;
+}
+
+template<int dim>
 void SpaceTime<dim>::run() {
 	std::cout << "Starting problem " << problem_name << " in " << dim << "+1D..." << std::endl;
 
@@ -888,7 +1053,7 @@ void SpaceTime<dim>::run() {
 		n_space_u = dofs_per_block[0];
 		n_space_v = dofs_per_block[1];
 
-		// no hanging node constraints ´
+		// no hanging node constraints 
 		AffineConstraints<double> constraints;
 		constraints.close();
 
@@ -907,14 +1072,19 @@ void SpaceTime<dim>::run() {
 				 InitialValues2D<dim>(),
 				 initial_solution,
 				 ComponentMask());
-		}		
+		}
+		std::ofstream initial_out(output_dir + "initial_solution.txt");
+		initial_solution.print(initial_out, /*precision*/16);	
 
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
 			// create and solve linear system
 			setup_system(slabs[k], k+1);
-			assemble_system(slabs[k]);
+			assemble_system(slabs[k], k, cycle, k == 0);
 			solve();
+
+			// output Space-Time DoF coordinates
+	   		print_coordinates(slabs[k], output_dir, k);
 			
 			// output results as SVG or VTK files
 			output_results(slabs[k], cycle, k); 
