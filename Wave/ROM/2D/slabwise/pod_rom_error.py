@@ -9,12 +9,11 @@ import os
 import time
 import sys
 #from iPOD import iPOD
-import imageio
 
 def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines = [
         "# vtk DataFile Version 3.0",
-	"PDE SOLUTION",
+        "PDE SOLUTION",
         "ASCII",
         "DATASET UNSTRUCTURED_GRID",
 	""
@@ -69,13 +68,12 @@ print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 [data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/matrix_no_bc.txt")
 matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
-A = matrix_no_bc[:, :].toarray()
 
-"""
-[data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/mass_matrix_no_bc.txt")
-mass_matrix_no_bc = scipy.sparse.csr_matrix(
+
+[data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/dual_matrix_no_bc.txt")
+functional_matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
-"""
+
 
 rhs_no_bc = []
 for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle)
@@ -114,12 +112,7 @@ coordinates = np.vstack((
 )).T
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
 
-"""
-# create PyVista grid from coordinates_x
-grid = pv.PolyData(np.hstack([coordinates_x.T, np.zeros((coordinates_x.shape[1],1))])).cast_to_unstructured_grid()
-grid.add_field_data(np.arange(coordinates_x.shape[1]), 'my-field-data')
-grid.save("grid.vtk") #, binary=False)
-"""
+
 
 # ------------
 # %% primal FOM solve
@@ -140,54 +133,41 @@ for i in range(n_slabs):
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
-print("FOM time:   " + str(execution_time_FOM))
+print("Primal FOM time:   " + str(execution_time_FOM))
 
 print("n_dofs[space] =", n_dofs["space"])
 for i, primal_solution in enumerate(primal_solutions):
 	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
 
-"""
-# plotting the primal FOM solution
-if PLOTTING:
-    def primal_gif(primal_solution):
-        grid_x, grid_y = np.mgrid[-1:1:150j, -1:1:150j]
-        displacement_grid = scipy.interpolate.griddata(
-            coordinates_x.T, primal_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
-        # fig, _ = plt.subplots(figsize=(15,15))
+# %% applying BC to dual matrix
+dual_matrix = matrix_no_bc.T.tocsr()
+for row in range(n_space_dofs):
+    for col in dual_matrix.getrow(row).nonzero()[1]:
+        dual_matrix[row, col] = 1. if row == col else 0.
+        
+# ------------
+# %% dual FOM solve
+start_execution = time.time()
+last_dual_solution = np.zeros_like(rhs_no_bc[0])
+# zero initial condition for dual problem
+dual_solutions = []
+for i in list(range(n_slabs))[::-1]:
+    # creating dual rhs and applying BC to it
+    dual_rhs = functional_matrix_no_bc.dot(primal_solutions[i])
+    for j in range(n_space_dofs):
+        dual_rhs[j] = last_dual_solution[j + n_space_dofs]
 
-        fig, (ax1, ax2) = plt.subplots(2, figsize=(30, 30))
+    dual_solutions.append(
+        scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs))
 
-        ax1.set_title(f"Primal displacement (ref={cycle.split('=')[1]})")
-        # ,vmin=-0.00025,vmax=0.00025)
-        im1 = ax1.imshow(displacement_grid.T,
-                         extent=(-1, 1, -1, 1), origin='lower')
-        # ax1.set_clim([-0.00025, 0.00025])
-        ax1.set_xlabel("$y$")
-        ax1.set_ylabel("$x$")
-        # ax1.colorbar()
-        # plt.colorbar(im1,ax=ax1)
+    last_dual_solution = dual_solutions[-1]
+end_execution = time.time()
+execution_time_FOM = end_execution - start_execution
+print("Dual FOM time:   " + str(execution_time_FOM))
 
-        velocity_grid = scipy.interpolate.griddata(
-            coordinates_x.T, primal_solution[n_dofs["space"]:2 * n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
-        ax2.set_title(f"Primal velocity (ref={cycle.split('=')[1]})")
-        # ,vmin=-0.00025,vmax=0.00025)
-        im2 = ax2.imshow(velocity_grid.T,
-                         extent=(-1, 1, -1, 1), origin='lower')
-        # ax2.set_clim(-0.00025, 0.00025)
-        ax2.set_xlabel("$y$")
-        ax2.set_ylabel("$x$")
-        # ax2.set_colorbar()
-        # plt.colorbar(im2,ax=ax2)
-        # plt.show()
+dual_solutions = dual_solutions[::-1]
 
-        fig.canvas.draw()       # draw the canvas, cache the renderer
-        image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-        image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-        return image
-
-    imageio.mimsave('./primal_solution.gif', [primal_gif(primal_solution)
-                    for primal_solution in primal_solutions], fps=3)
-"""
+for i, dual_solution in enumerate(dual_solutions):
+	save_vtk(OUTPUT_PATH + cycle + f"/py_dual_solution{i:05}.vtk", {"displacement": dof_matrix.dot(dual_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
 
 print("\n\nTO DO @Hendrik")
