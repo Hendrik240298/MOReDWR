@@ -579,7 +579,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 			  space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
 			) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
 
-			double indicator_function = 1.; // (space_cell->center()[0] < 0.) * (space_cell->center()[1] < 0.); //
+			//double indicator_function = 1.; // 
+			double indicator_function = (space_cell->center()[0] < 0.) * (space_cell->center()[1] < 0.); //
 			cell_dual_matrix(
 			  j + jj * space_dofs_per_cell,
 			  i + ii * space_dofs_per_cell

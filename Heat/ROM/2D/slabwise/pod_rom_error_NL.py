@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import time
 import sys
-from iPOD import iPOD, ROM_update
+from iPOD import iPOD, ROM_update, ROM_update_dual
 import imageio
 
 PLOTTING = False
@@ -203,16 +203,22 @@ projected_reduced_solutions = []
 projected_reduced_solutions_before_enrichment = []
 projected_reduced_dual_solutions = []
 
+dual_residual = []
+dual_residual.append(0)
+
 temporal_interval_error = []
 temporal_interval_error_incidactor = []
 
 tol = 5e-4/(n_slabs)
-tol_rel = 5e-2
+tol_rel = 1e-2
+tol_dual = 5e-1
 forwardsteps = 5
 
-print("tol =     " + str(tol))
-print("tol_rel = " + str(tol_rel))
-
+# print("tol =     " + str(tol))
+print("tol_rel       = " + str(tol_rel))
+print("tol           = " + str(tol))
+print(f"forward steps = {forwardsteps}")
+print(" ")
 start_execution = time.time()
 extime_solve = 0.0
 extime_dual_solve = 0.0
@@ -260,14 +266,48 @@ for i in range(n_slabs):
         forwarded_reduced_dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(forwarded_reduced_dual_solutions[-1])
         forwarded_reduced_dual_solutions.append(np.linalg.solve(reduced_dual_matrix,forwarded_reduced_dual_rhs))
 
+    if len(forwarded_reduced_dual_solutions) == 1:
+        forwarded_reduced_dual_solutions.append(forwarded_reduced_dual_solutions[-1])
+        forwarded_reduced_dual_solutions[-2] = np.zeros_like(forwarded_reduced_dual_solutions[-1])
     # if i != n_slabs-1 and i != n_slabs-2 :
     #     reduced_dual_solutions = forwarded_reduced_dual_solutions[-3]
     # else:
     reduced_dual_solutions = forwarded_reduced_dual_solutions[-1]
-        
+
     projected_reduced_dual_solutions.append(space_time_pod_basis_dual.dot(reduced_dual_solutions))
     extime_dual_solve += time.time() - start_time
-    
+              
+    # check dual FOM residual 
+    if i>0:
+        F_residual = mass_matrix_no_bc.dot(projected_reduced_solutions[-1])
+        F_residual -= jump_matrix_no_bc.T.dot(space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]))
+        A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
+        dual_residual.append(np.linalg.norm(-A_residual + F_residual))
+
+        
+    if dual_residual[-1] > tol_dual and i < n_slabs-1:
+        last_projected_dual_solution = space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2])
+        pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
+                     pod_basis_dual, 
+                     space_time_pod_basis_dual, 
+                     reduced_dual_matrix, 
+                     reduced_dual_jump_matrix_no_bc, #reduced_dual_jump_matrix*0, 
+                     last_projected_dual_solution,#forwarded_reduced_dual_solutions[-2], 
+                     mass_matrix_no_bc.dot(projected_reduced_solutions[-1]),
+                     jump_matrix_no_bc,
+                     boundary_ids,
+                     dual_matrix,
+                     singular_values_dual,
+                     total_energy_dual,
+                     n_dofs,
+                     time_dofs_per_time_interval,
+                     dual_matrix_no_bc,
+                     ENERGY_DUAL)    
+        reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+        forwarded_reduced_dual_solutions[-2] = space_time_pod_basis_dual.T.dot(last_projected_dual_solution)
+        # test residual again
+        A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
+        dual_residual[-1] = np.linalg.norm(-A_residual + F_residual)
     # projected_reduced_dual_solutions.append(dual_solutions[i])
 
     # print(len(forwarded_reduced_solutions))
@@ -304,8 +344,7 @@ for i in range(n_slabs):
                      space_time_pod_basis, 
                      reduced_system_matrix, 
                      reduced_jump_matrix, 
-                     projected_reduced_solutions[i - 1]
-                     , 
+                     projected_reduced_solutions[i - 1], 
                      rhs_no_bc[i].copy(),
                      jump_matrix_no_bc,
                      boundary_ids,
@@ -317,13 +356,13 @@ for i in range(n_slabs):
                      matrix_no_bc,
                      ENERGY_PRIMAL)
         
-        pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update(
+        pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
                      pod_basis_dual, 
                      space_time_pod_basis_dual, 
                      reduced_dual_matrix, 
                      reduced_dual_jump_matrix_no_bc, #reduced_dual_jump_matrix*0, 
-                     projected_reduced_dual_solutions[i - 1]
-                     , 
+                     space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]), 
+                     # projected_reduced_dual_solutions[-2],
                      mass_matrix_no_bc.dot(projected_reduced_solutions[-1]),
                      jump_matrix_no_bc,
                      boundary_ids,
@@ -367,8 +406,8 @@ print("ROM Solve time:      " + str(extime_solve))
 print("ROM dual Solve time: " + str(extime_dual_solve))
 print("Error est time:      " + str(extime_error))
 print("Update time:         " + str(extime_update))
-print(str(extime_solve+extime_error+extime_update))
-
+print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve))
+print(" ")
 projected_reduced_solution = np.hstack(projected_reduced_solutions)
 
 original_stdout = sys.stdout  # Save a reference to the original standard output
@@ -390,14 +429,14 @@ J["u_r"] = np.sum(J_r_t)
 print("J(u_h) =", J["u_h"])
 # TODO: in the future compare J(u_r) for different values of rprojected_reduced_dual_solutions
 print("J(u_r) =", J["u_r"])
-
+print(" ")
 
 # %% error estimation
 true_error = J['u_h'] - J['u_r']
 
 error_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
 
-print(np.sum(error_tol.astype(int)))
+#print(np.sum(error_tol.astype(int)))
 
 J_r_t = J_r_t_before_enrichement
 
@@ -434,11 +473,11 @@ eff_alternative_2 /= (2*n_slabs_filter)
 print("\nUsing z_h:")
 print("----------")
 error_estimator = sum(temporal_interval_error)
-print(f"True error:         {true_error}")
-print(f"Estimated error:    {error_estimator}")
-print(f"Effectivity index:  {abs(true_error / error_estimator)}")
-print(f"Effectivity index1: {eff_alternative_1}")
-print(f"Effectivity index2: {eff_alternative_2}")
+print(f"True error:          {true_error}")
+print(f"Estimated error:     {error_estimator}")
+print(f"Effectivity index 1: {abs(true_error / error_estimator)}")
+print(f"Effectivity index 2: {eff_alternative_1[0]}")
+print(f"Effectivity index 3: {eff_alternative_2[0]}")
 
 
 # %% Ploting
@@ -478,8 +517,8 @@ plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{Q_l}$")
 plt.yscale("log")
 plt.xlim([0, n_slabs*time_step_size])
 #plt.title("temporal evaluation of cost funtional")
-# plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.eps", format='eps')
-# plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.png", format='png')
+plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.eps", format='eps')
+plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.png", format='png')
 
 plt.show()
 
@@ -540,8 +579,8 @@ plt.yscale("log")
 plt.xlim([0, n_slabs*time_step_size])
 
 #plt.title("temporal evaluation of cost funtional")
-# plt.savefig(SAVE_PATH + "effectivity.eps", format='eps')
-# plt.savefig(SAVE_PATH + "effectivity.png", format='png')
+plt.savefig(SAVE_PATH + "effectivity.eps", format='eps')
+plt.savefig(SAVE_PATH + "effectivity.png", format='png')
 
 plt.show()
 
@@ -560,8 +599,8 @@ plt.xlabel('$t \; [$s$]$')
 plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
 plt.xlim([0, n_slabs*time_step_size])
 #plt.title("temporal evaluation of cost funtional")
-# plt.savefig(SAVE_PATH + "temporal_cost_funtional.eps", format='eps')
-# plt.savefig(SAVE_PATH + "temporal_cost_funtional.png", format='png')
+plt.savefig(SAVE_PATH + "temporal_cost_funtional.eps", format='eps')
+plt.savefig(SAVE_PATH + "temporal_cost_funtional.png", format='png')
 plt.show()
 
 
@@ -580,10 +619,24 @@ plt.xlabel('$t \; [$s$]$')
 plt.ylabel("$error$")
 plt.xlim([0, n_slabs*time_step_size])
 #plt.title("temporal evaluation of cost funtional")
-# plt.savefig(SAVE_PATH + "temporal_cost_funtional.eps", format='eps')
-# plt.savefig(SAVE_PATH + "temporal_cost_funtional.png", format='png')
+plt.savefig(SAVE_PATH + "error_estimate_over_time.eps", format='eps')
+plt.savefig(SAVE_PATH + "error_estimate_over_time.png", format='png')
 plt.show()
 
+# plot temporal evolution of dual resisudal
+plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+         dual_residual, c='#1f77b4', label="dual residual")
+plt.grid()
+plt.legend()
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$dual residual$")
+plt.xlim([0, n_slabs*time_step_size])
+#plt.title("temporal evaluation of cost funtional")
+# plt.savefig(SAVE_PATH + "error_estimate_over_time.eps", format='eps')
+# plt.savefig(SAVE_PATH + "error_estimate_over_time.png", format='png')
+plt.show()
 
 # %%
 # for dual_solution in dual_solutions:

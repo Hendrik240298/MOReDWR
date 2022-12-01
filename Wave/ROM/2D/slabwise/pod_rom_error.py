@@ -10,6 +10,14 @@ import time
 import sys
 #from iPOD import iPOD
 
+PLOTTING = True
+INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
+CASE = ""  # "rotating_circle"
+OUTPUT_PATH = "../../../Data/2D/BangerthGeigerRannacher/"
+cycle = "cycle=4"
+SAVE_PATH = "../../../Data/2D/BangerthGeigerRannacher/" + cycle + "/output_ROM/"
+
+# %% vtk plotting requeiremnets
 def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines = [
         "# vtk DataFile Version 3.0",
@@ -38,12 +46,6 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
     with open(file_name, "w") as file:
         file.write("\n".join(lines))
 
-PLOTTING = True
-INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
-CASE = ""  # "rotating_circle"
-OUTPUT_PATH = "../../../Data/2D/BangerthGeigerRannacher/"
-cycle = "cycle=5"
-SAVE_PATH = "../../../Data/2D/BangerthGeigerRannacher/" + cycle + "/output_ROM/"
 
 # creating grid and dof_matrix for vtk output
 grid = []
@@ -87,8 +89,8 @@ for f in sorted([f for f in os.listdir(
 """
 
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
-print(initial_solution)
-print(max(abs(initial_solution)))
+# print(initial_solution)
+# print(max(abs(initial_solution)))
 
 # NO boundary_ids, since we have only homogeneous Neumann boundary conditions for the wave equation which represent reflecting boundaries
 # %% applying BC to primal matrix
@@ -109,12 +111,18 @@ coordinates = np.vstack((
     np.tensordot(coordinates_t, np.ones_like(coordinates_x), 0).flatten(),
     np.tensordot(np.ones_like(coordinates_t), coordinates_x, 0).flatten()
 )).T
+# n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block 
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
 
 # ------------
 # %% reduced linear equation system size, since solution of first time DoF can be enforced
+#-----------
+#  A  |  B
+#-----------
+#  C  |  D
+#-----------
 A = matrix_no_bc[:2*n_dofs["space"],:2*n_dofs["space"]] # need this for   dual problem
-#B = matrix_no_bc[:2*n_dofs["space"],2*n_dofs["space"]:] # need this for   dual problem
+B = matrix_no_bc[:2*n_dofs["space"],2*n_dofs["space"]:] # need this for   dual problem
 C = matrix_no_bc[2*n_dofs["space"]:,:2*n_dofs["space"]] # need this for primal and dual problem
 D = matrix_no_bc[2*n_dofs["space"]:,2*n_dofs["space"]:] # need this for primal and dual problem
 
@@ -124,6 +132,7 @@ print(f"matrix_no_bc.shape = {matrix_no_bc.shape}")
 
 # ------------
 # %% primal FOM solve
+# solve D x_2 = b_2 - C x_0 since x_1 = x_0 due to continuity
 start_execution = time.time()
 last_primal_solution = np.zeros((2*n_dofs["space"],))
 last_primal_solution[:] = initial_solution[:]
@@ -137,11 +146,13 @@ for i in range(n_slabs):
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
-print("Primal FOM time:   " + str(execution_time_FOM))
 
+print("Primal FOM time:   " + str(execution_time_FOM))
 print("n_dofs[space] =", n_dofs["space"])
+
+save_vtk(OUTPUT_PATH + cycle + "/py_solution00000.vtk", {"displacement": dof_matrix.dot(initial_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(initial_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=0, time=0.)
 for i, primal_solution in enumerate(primal_solutions):
-	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
+	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
 
 # %% applying BC to dual matrix
 # dual_matrix = matrix_no_bc.T.tocsr()
@@ -161,6 +172,7 @@ print(f"J_2.shape = {J_2.shape}")
 # %% dual FOM solve
 start_execution = time.time()
 last_dual_solution =  np.zeros((2*n_dofs["space"],))
+# last_dual_solution[:] = initial_solution[:]
 # zero initial condition for dual problem
 dual_solutions = []
 for i in list(range(n_slabs))[::-1]:
@@ -168,7 +180,10 @@ for i in list(range(n_slabs))[::-1]:
     dual_rhs = J_2.dot(primal_solutions[i]) #functional_matrix_no_bc.dot(primal_solutions[i])
     if i > 0:
         dual_rhs += J_1.dot(primal_solutions[i-1])
-    dual_rhs -= C.T.dot(last_dual_solution)
+    else:
+        dual_rhs += J_1.dot(initial_solution)
+    dual_rhs -= B.T.dot(last_dual_solution)
+    # dual_rhs = -1. * B.T.dot(last_dual_solution)
 
     dual_solutions.append(
         scipy.sparse.linalg.spsolve(A.T, dual_rhs))
