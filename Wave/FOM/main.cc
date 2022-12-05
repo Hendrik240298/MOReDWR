@@ -419,7 +419,7 @@ void SpaceTime<1>::make_grids() {
 			  cell->face(face)->set_boundary_id(0);
 
 	// globally refine the grids
-	space_triangulation.refine_global(2);
+	space_triangulation.refine_global(1);
 	for (auto &slab : slabs)
 	  slab->time_triangulation.refine_global(0);
 }
@@ -429,7 +429,7 @@ void SpaceTime<2>::make_grids() {
 	// Simplified version of Example 5.4 from Bangerth, Geiger, Rannacher paper
 
 	// create grids
-	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(-1., -1.), Point<2>(1., 1.));
+	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(-5., -5.), Point<2>(5., 5.));
 	for (auto &slab : slabs)
 	  GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
 
@@ -442,7 +442,7 @@ void SpaceTime<2>::make_grids() {
 	// globally refine the grids
 	space_triangulation.refine_global(1);
 	for (auto &slab : slabs)
-	  slab->time_triangulation.refine_global(5);
+	  slab->time_triangulation.refine_global(4);
 }
 
 template<int dim>
@@ -1149,12 +1149,23 @@ int main() {
 		const std::string problem_name = "BangerthGeigerRannacher"; //"analytic";
 		const int dim = 2;
 
+		std::vector<unsigned int> r;
+                std::vector<double> t = {0.};
+                double T = 40.;
+                int N = 8; //2*4;
+                double dt = T / N;
+		for (unsigned int i = 0; i < N; ++i)
+                {
+                        r.push_back(1);
+                        t.push_back((i+1)*dt);
+                }
+
 		// run the simulation
 		SpaceTime<dim> space_time_problem(
 		  problem_name,     // problem_name
 		  1,                // s ->  spatial FE degree
-		  {1,1,1,1},        // r -> temporal FE degree
-		  {0.,1.,2.,3.,4.}, // end_time,
+		  r,                // r -> temporal FE degree
+		  t, 		    // end_time,
 		  7,                // max_n_refinement_cycles,
 		  true,             // refine_space
 		  true,             // refine_time

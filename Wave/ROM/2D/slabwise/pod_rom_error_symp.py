@@ -15,10 +15,10 @@ INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 CASE = ""  # "rotating_circle"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Wave/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/BangerthGeigerRannacher/"
-cycle = "cycle=2"
+cycle = "cycle=4"
 SAVE_PATH = cycle + "/output_ROM/"
 
-ENERGY_PRIMAL = 0.9999
+ENERGY_PRIMAL = 0.9999999999999  # 0.99999999999999
 ENERGY_DUAL = 0.9999
 # %% vtk plotting requeiremnets
 
@@ -150,17 +150,29 @@ last_primal_solution[:] = initial_solution[:]
 primal_solutions = [initial_solution[:]]
 for i in range(n_slabs):
     # creating primal rhs and applying BC to it
-    primal_rhs = rhs_no_bc[i][2*n_dofs["space"]
-        :].copy() - C.dot(last_primal_solution)
 
-    primal_solutions.append(
-        scipy.sparse.linalg.spsolve(D, primal_rhs))
+    if False:
+        print(OUTPUT_PATH +
+              cycle +
+              f"/solution{(5-len(str(i)))*'0'}{i}.txt")
+        primal_solutions.append(
+            np.loadtxt(
+                OUTPUT_PATH +
+                cycle +
+                f"/solution{(5-len(str(i)))*'0'}{i}.txt"))
+    else:
+        primal_rhs = - C.dot(last_primal_solution) # rhs_no_bc[i][2*n_dofs["space"]:].copy()
+
+        primal_solutions.append(
+            scipy.sparse.linalg.spsolve(D, primal_rhs))
+
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
 
 print("Primal FOM time:   " + str(execution_time_FOM))
-print("CFL number:        " + str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
+print("CFL number:        " +
+      str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
 print("n_dofs[space] =", n_dofs["space"])
 
 # save_vtk(OUTPUT_PATH + cycle + "/py_solution00000.vtk", {"displacement": dof_matrix.dot(
@@ -238,11 +250,11 @@ print(f"J_2.shape = {J_2.shape}")
 
 bunch_size = len(primal_solutions)  # 1
 
-J_symplectic = np.zeros([2 * n_dofs["space"],2 * n_dofs["space"]]) 
+J_symplectic = np.zeros([2 * n_dofs["space"], 2 * n_dofs["space"]])
 
 for i in range(n_dofs["space"]):
-    J_symplectic[i,n_dofs["space"]+i] = 1.
-    J_symplectic[n_dofs["space"]+i,i] = -1.
+    J_symplectic[i, n_dofs["space"]+i] = 1.
+    J_symplectic[n_dofs["space"]+i, i] = -1.
 
 total_energy = {"displacement": 0, "velocity": 0}
 pod_basis = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
@@ -273,17 +285,25 @@ for primal_solution in primal_solutions:  # [0:1]:
         iPOD(pod_basis_symplectic,
              bunch_symplectic,
              singular_values_symplectic,
-             primal_solution[0:n_dofs["space"]] + 1j * primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+             primal_solution[0:n_dofs["space"]] + 1j *
+             primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
              total_energy_symplectic,
              ENERGY_PRIMAL,
              bunch_size)
 
 # pod_basis_symplectic, singular_values_symplectic, _ = scipy.linalg.svd(bunch_symplectic, full_matrices=False)
 
+for i in range(singular_values_symplectic.shape[0]):
+    if singular_values_symplectic[i] < 1e-9:
+        break
+    
+pod_basis_symplectic = pod_basis_symplectic[:,:i]   
+singular_values_symplectic = singular_values_symplectic[:i]   
 
-E = np.vstack((np.real(pod_basis_symplectic),np.imag(pod_basis_symplectic)))
 
-pod_basis = np.hstack((E,J_symplectic.T.dot(E)))
+E = np.vstack((np.real(pod_basis_symplectic), np.imag(pod_basis_symplectic)))
+
+pod_basis = np.hstack((E, J_symplectic.T.dot(E)))
 
 
 # %%
@@ -291,40 +311,45 @@ pod_basis = np.hstack((E,J_symplectic.T.dot(E)))
 # pod_basis_symplectic, singular_values_symplectic, _ = scipy.linalg.svd(bunch_symplectic, full_matrices=False)
 print(pod_basis.shape[1])
 
-J_symplectic_k = np.zeros([pod_basis.shape[1],pod_basis.shape[1]]) 
+J_symplectic_k = np.zeros([pod_basis.shape[1], pod_basis.shape[1]])
 size_pp = int(pod_basis.shape[1]/2)
 for i in range(size_pp):
-    J_symplectic_k[i,size_pp+i] = 1.
-    J_symplectic_k[size_pp+i,i] = -1.
-    
-print(np.linalg.norm( np.eye(pod_basis.shape[1],pod_basis.shape[1]) - pod_basis.T.dot(pod_basis) ) )
-print(np.linalg.norm(J_symplectic_k -   pod_basis.T.dot(J_symplectic.dot(pod_basis))  ))   
-print(np.linalg.norm(pod_basis.T  -np.linalg.pinv(pod_basis) ))  
+    J_symplectic_k[i, size_pp+i] = 1.
+    J_symplectic_k[size_pp+i, i] = -1.
+
+print(np.linalg.norm(
+    np.eye(pod_basis.shape[1], pod_basis.shape[1]) - pod_basis.T.dot(pod_basis)))
+print(np.linalg.norm(J_symplectic_k - pod_basis.T.dot(J_symplectic.dot(pod_basis))))
+print(np.linalg.norm(pod_basis.T - np.linalg.pinv(pod_basis)))
 # compute reduced matrices
-# needed for dual 
+# needed for dual
 # A_reduced = reduce_matrix(A,pod_basis_dual,pod_basis_dual)           print("CFL number:        " + str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
 
-# B_reduced = reduce_matrix(B,pod_basis_dual,pod_basis_dual)  
-# J_1_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)          
-# J_2_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)          
-# needed for primal         
-C_reduced = reduce_matrix(C,pod_basis,pod_basis)           
-D_reduced = reduce_matrix(D,pod_basis,pod_basis) 
+# B_reduced = reduce_matrix(B,pod_basis_dual,pod_basis_dual)
+# J_1_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)
+# J_2_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)
+# needed for primal
+C_reduced = reduce_matrix(C, pod_basis, pod_basis)
+D_reduced = reduce_matrix(D, pod_basis, pod_basis)
 
 # %% primal ROM solve
 reduced_solutions = []
-reduced_solution_old = reduce_vector(initial_solution[:],pod_basis)
+reduced_solution_old = reduce_vector(initial_solution[:], pod_basis)
 
 # reduced_dual_solutions = []
 # reduced_dual_solution_old = reduce_vector(dual_solutions[0], pod_basis_dual)
 
-projected_reduced_solutions = [project_vector(reduce_vector(initial_solution[:],pod_basis), pod_basis)]
+projected_reduced_solutions = [project_vector(
+    reduce_vector(initial_solution[:], pod_basis), pod_basis)]
 projected_reduced_solutions_before_enrichment = []
 projected_reduced_dual_solutions = []
 
-print(np.linalg.norm(initial_solution[:] -   project_vector(reduce_vector(initial_solution[:],pod_basis), pod_basis)            ))
-print(np.linalg.norm(projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
-print(np.linalg.norm(projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
+print(np.linalg.norm(initial_solution[:] - project_vector(
+    reduce_vector(initial_solution[:], pod_basis), pod_basis)))
+print(np.linalg.norm(
+    projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
+print(np.linalg.norm(
+    projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
 
 dual_residual = []
 dual_residual.append(0)
@@ -346,32 +371,51 @@ start_execution = time.time()
 extime_solve = 0.0
 extime_dual_solve = 0.0
 extime_error = 0.0
-extime_update  = 0.0
+extime_update = 0.0
 
 for i in range(n_slabs):
     start_time = time.time()
     # primal ROM solve
-    reduced_rhs = reduce_vector(rhs_no_bc[i][2*n_dofs["space"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
-    reduced_solution = np.linalg.solve(D_reduced,reduced_rhs)
-    
-    projected_reduced_solutions.append(project_vector(reduced_solution,pod_basis))
+    # reduce_vector(np.zeros_like(rhs_no_bc[i][2*n_dofs["space"]:].copy()), pod_basis)
+    reduced_rhs = - C_reduced.dot(reduced_solution_old)
+    reduced_solution = np.linalg.solve(D_reduced, reduced_rhs)
+
+    projected_reduced_solutions.append(
+        project_vector(reduced_solution, pod_basis))
     reduced_solution_old = reduced_solution
-    
-    print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1][:n_dofs["space"]]))
-    print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1][n_dofs["space"]:]))
-    print(" ")
+
+print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
+      [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
+print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
+      [n_dofs["space"]:])/np.linalg.norm(primal_solutions[i+1][n_dofs["space"]:]))
+print(" ")
+
+norm_primal_displacement = []
+norm_reduced_displacement = []
+norm_primal_velo = []
+norm_reduced_velo = []
+
+for i in range(n_slabs+1):
+    norm_primal_displacement.append(np.linalg.norm(
+        primal_solutions[i][:n_dofs["space"]]))
+    norm_reduced_displacement.append(np.linalg.norm(
+        projected_reduced_solutions[i][:n_dofs["space"]]))
+    norm_primal_velo.append(np.linalg.norm(
+        primal_solutions[i][n_dofs["space"]:]))
+    norm_reduced_velo.append(np.linalg.norm(
+        projected_reduced_solutions[i][n_dofs["space"]:]))
 
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
 print("ROM time:        " + str(execution_time_ROM))
-print("CFL number:        " + str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
+print("CFL number:        " +
+      str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
 
 for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
-	save_vtk(OUTPUT_PATH + cycle + f"/primal_solution{i:05}.vtk", \
-            {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]) \
-            , "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
-    # save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", 
-    #          {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), 
+    save_vtk(OUTPUT_PATH + cycle + f"/primal_solution{i:05}.vtk",
+             {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
+    # save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk",
+    #          {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]),
     #           "velocity": dof_matrix.dot( primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
 # 	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), \
 #             "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
@@ -385,6 +429,31 @@ plt.plot(np.arange(0, pod_basis_symplectic.shape[1]),
 
 plt.grid()
 plt.yscale('log')
+plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.show()
+
+
+# plot norm of displace,mnet
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs+1),
+         norm_primal_displacement, label="primal")
+plt.plot(np.arange(0, n_slabs+1),
+         norm_reduced_displacement, label="reduced")
+# plt.yscale('log')
+plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.show()
+
+# plot norm of velocity
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs+1),
+         norm_primal_velo, label="primal")
+plt.plot(np.arange(0, n_slabs+1),
+         norm_reduced_velo, label="reduced")
+# plt.yscale('log')
 plt.legend()
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.show()
