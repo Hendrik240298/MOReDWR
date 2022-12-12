@@ -4,8 +4,8 @@ import scipy.sparse.linalg
 import scipy.linalg
 import time
 
-def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
-    bunch_size = 2
+def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content,bunch_size):
+    # bunch_size = 2
     # energy_content = 0.9999 #1 -1e-8 # 0.9999
     row, col_POD = POD.shape
 
@@ -15,13 +15,14 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
     bunch = np.hstack((bunch, snapshot.reshape(-1, 1)))
     _, col = bunch.shape
 
-    total_energy += np.dot((snapshot), (snapshot))
+    total_energy += np.dot(np.abs(snapshot), np.abs(snapshot))
     if (col == bunch_size):
         if (col_POD == 0):
             POD, S, _ = scipy.linalg.svd(bunch, full_matrices=False)
             r = 0
             # np.shape(S_k)[0])):
-            while ((np.dot(S[0:r], S[0:r]) / total_energy <= energy_content) and (r <= bunch_size)):
+            while ((np.dot(S[0:r], S[0:r]) / total_energy <=
+                   energy_content) and (r <= bunch_size)):
                 r += 1
                 # print(r)
             singular_values = S[0:r]
@@ -52,7 +53,6 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
                    energy_content) and (r < np.shape(S_k)[0])):
                 r += 1
                 # print(r)
-
             singular_values = S_k[0:r]
             POD = np.matmul(Q_q, U_k[:, 0:r])
         bunch = np.empty([np.shape(bunch)[0], 0])
@@ -63,7 +63,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
 
 def ROM_update(
         pod_basis,
-        # space_time_pod_basis,
+        space_time_pod_basis,
         reduced_system_matrix,
         reduced_jump_matrix,
         last_projected_reduced_solution,
@@ -112,32 +112,28 @@ def ROM_update(
     
     start_time = time.time()
     # change from the FOM to the POD basis
-    # space_time_pod_basis = scipy.sparse.block_diag(
-    #     [pod_basis] * time_dofs_per_time_interval)
+    space_time_pod_basis = scipy.sparse.block_diag(
+        [pod_basis] * time_dofs_per_time_interval)
     
     # start_time1 = time.time()
     # reduced_system_matrix = space_time_pod_basis.T.dot(
     #     matrix_no_bc.dot(space_time_pod_basis))
+    reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
+    start_time1_1 = time.time()
+    reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
+    reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
+    reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
+    reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
     
-    reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
-    reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
-    
-    # reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # # start_time1_1 = time.time()
-    # reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
-    
-    # # start_time2 = time.time()
-    # # reduced_jump_matrix = space_time_pod_basis.T.dot(
-    # #     jump_matrix_no_bc.dot(space_time_pod_basis))
-    # reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # # start_time2_2 = time.time()
-    # reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
+    # start_time2 = time.time()
+    # reduced_jump_matrix = space_time_pod_basis.T.dot(
+    #     jump_matrix_no_bc.dot(space_time_pod_basis))
+    reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
+    start_time2_2 = time.time()
+    reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
+    reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
+    reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
+    reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
  
     
     
@@ -151,12 +147,11 @@ def ROM_update(
     # print("fom:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
     # print("iPOD:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
     # print("mat:   " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
-    # return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
-    return pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
+    return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
 
 def ROM_update_dual(
         pod_basis,
-        # space_time_pod_basis,
+        space_time_pod_basis,
         reduced_system_matrix,
         reduced_jump_matrix,
         last_projected_reduced_solution,
@@ -206,31 +201,28 @@ def ROM_update_dual(
     
     start_time = time.time()
     # change from the FOM to the POD basis
-    # space_time_pod_basis = scipy.sparse.block_diag(
-    #     [pod_basis] * time_dofs_per_time_interval)
+    space_time_pod_basis = scipy.sparse.block_diag(
+        [pod_basis] * time_dofs_per_time_interval)
     
-    
-    reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
-    reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
     # start_time1 = time.time()
     # reduced_system_matrix = space_time_pod_basis.T.dot(
     #     matrix_no_bc.dot(space_time_pod_basis))
-    # reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # start_time1_1 = time.time()
-    # reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
+    reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
+    start_time1_1 = time.time()
+    reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
+    reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
+    reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
+    reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
     
-    # # start_time2 = time.time()
-    # # reduced_jump_matrix = space_time_pod_basis.T.dot(
-    # #     jump_matrix_no_bc.dot(space_time_pod_basis))
-    # reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # start_time2_2 = time.time()
-    # reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
+    # start_time2 = time.time()
+    # reduced_jump_matrix = space_time_pod_basis.T.dot(
+    #     jump_matrix_no_bc.dot(space_time_pod_basis))
+    reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
+    start_time2_2 = time.time()
+    reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
+    reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
+    reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
+    reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
  
     
     
@@ -244,53 +236,49 @@ def ROM_update_dual(
     # print("fom:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
     # print("iPOD:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
     # print("mat:   " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
-    # return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
-    return pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
+    return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
 
 
 def reduce_matrix(matrix, pod_basis_left, pod_basis_right):
-    n_h_dofs = pod_basis_left.shape[0]
-    n_u_dofs_left = pod_basis_left.shape[1]
-    n_u_dofs_right = pod_basis_right.shape[1]
-    # n_dofs = pod_basis_left["displacement"].shape[0]
-    # size_u = pod_basis_left["displacement"].shape[1]
-    # size_v = pod_basis_left["velocity"].shape[1]
-    # size_u_right = pod_basis_right["displacement"].shape[1]
-    # size_v_right = pod_basis_right["velocity"].shape[1]
+    n_dofs = pod_basis_left["displacement"].shape[0]
+    size_u = pod_basis_left["displacement"].shape[1]
+    size_v = pod_basis_left["velocity"].shape[1]
+    size_u_right = pod_basis_right["displacement"].shape[1]
+    size_v_right = pod_basis_right["velocity"].shape[1]
     
-    reduced_matrix = np.zeros([n_u_dofs_left*2,n_u_dofs_right*2])
-    reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
+    reduced_matrix = np.zeros([size_u+size_v,size_u_right+size_v_right])
+    reduced_matrix[:size_u,:size_u_right] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,:n_dofs].dot(pod_basis_right["displacement"]))
+    reduced_matrix[size_u:,size_u_right:] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,n_dofs:].dot(pod_basis_right["velocity"]))
+    reduced_matrix[:size_u,size_u_right:] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,n_dofs:].dot(pod_basis_right["velocity"]))
+    reduced_matrix[size_u:,:size_u_right] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,:n_dofs].dot(pod_basis_right["displacement"]))
     
-    # reduced_matrix[:size_u,:size_u_right] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,:n_dofs].dot(pod_basis_right["displacement"]))
-    # reduced_matrix[size_u:,size_u_right:] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,n_dofs:].dot(pod_basis_right["velocity"]))
-    # reduced_matrix[:size_u,size_u_right:] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,n_dofs:].dot(pod_basis_right["velocity"]))
-    # reduced_matrix[size_u:,:size_u_right] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,:n_dofs].dot(pod_basis_right["displacement"]))
     
     return reduced_matrix
+    
 
 def reduce_vector(vector, pod_basis):    
         
-    n_h_dofs = pod_basis.shape[0]
-    n_u_dofs = pod_basis.shape[1]
+    n_dofs = pod_basis["displacement"].shape[0]
+    size_u = pod_basis["displacement"].shape[1]
+    size_v = pod_basis["velocity"].shape[1]
     
-    reduced_vector = np.zeros([2*n_u_dofs, ])
+    reduced_vector = np.zeros([size_u+size_v, ])
     
-    reduced_vector[:n_u_dofs] = pod_basis.T.dot(vector[:n_h_dofs])
-    reduced_vector[n_u_dofs:] = pod_basis.T.dot(vector[n_h_dofs:])
+    reduced_vector[:size_u] = pod_basis["displacement"].T.dot(vector[:n_dofs])
+    reduced_vector[size_u:] = pod_basis["velocity"].T.dot(vector[n_dofs:])
     
     return reduced_vector
     
 def project_vector(reduced_vector, pod_basis): 
-      
-    n_h_dofs = pod_basis.shape[0]
-    n_u_dofs = pod_basis.shape[1]
-    vector = np.zeros([2*n_h_dofs,])
+        
+    n_dofs = pod_basis["displacement"].shape[0]
+    size_u = pod_basis["displacement"].shape[1]
+    size_v = pod_basis["velocity"].shape[1]
+    vector = np.zeros([2*n_dofs,])
 
-    vector[:n_h_dofs] = pod_basis.dot(reduced_vector[:n_u_dofs])
-    vector[n_h_dofs:] = pod_basis.dot(reduced_vector[n_u_dofs:])
+    vector[:n_dofs] = pod_basis["displacement"].dot(reduced_vector[:size_u])
+    vector[n_dofs:] = pod_basis["velocity"].dot(reduced_vector[size_u:])
     
     return vector    
+    
     

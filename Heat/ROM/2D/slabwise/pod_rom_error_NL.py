@@ -8,17 +8,17 @@ import matplotlib.pyplot as plt
 import os
 import time
 import sys
-from iPOD import iPOD, ROM_update, ROM_update_dual
+from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
 import imageio
 
 PLOTTING = False
 INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
-OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/"
+OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
 cycle = "cycle=4"
-SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/" + cycle + "/output_ROM/"
-SAVE_PATH = cycle + "/output_ROM/"
+SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
+# SAVE_PATH = cycle + "/output_ROM/"
 
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
@@ -27,6 +27,8 @@ ENERGY_DUAL = 0.999999
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
+if not os.path.exists(SAVE_PATH + "movie/"):    
+    os.makedirs(SAVE_PATH + "movie/")
 
 
 # %% load data
@@ -66,6 +68,9 @@ primal_matrix = matrix_no_bc.tocsr()
 for row in boundary_ids:
     for col in primal_matrix.getrow(row).nonzero()[1]:
         primal_matrix[row, col] = 1. if row == col else 0.
+        # for in_bc in range(len(rhs_no_bc)):
+        #     if row == col: 
+        #         rhs_no_bc[in_bc][col] = 1. 
 
 # %% applying BC to dual matrix
 dual_matrix_no_bc = matrix_no_bc.T.tocsr()
@@ -112,7 +117,7 @@ last_dual_solution = np.zeros_like(dual_rhs_no_bc[0])
 dual_solutions = []
 for i in list(range(n_slabs))[::-1]:
     # creating dual rhs and applying BC to it
-    dual_rhs = mass_matrix_no_bc.dot(primal_solutions[i])
+    dual_rhs = 2*mass_matrix_no_bc.dot(primal_solutions[i])
     # dual_rhs = dual_rhs_no_bc[i].copy()
     dual_rhs -= jump_matrix_no_bc.T.dot(last_dual_solution)
     for row in boundary_ids:
@@ -146,6 +151,7 @@ singular_values = np.empty([0, 0])
 
 # only use first solution of slab since we assume that solutions are quite similar
 for slab_step in range(int(primal_solutions[0].shape[0] / n_dofs["space"])):
+    print(slab_step)
     pod_basis, bunch, singular_values, total_energy = iPOD(pod_basis, 
                                                            bunch, 
                                                            singular_values, 
@@ -157,10 +163,15 @@ for slab_step in range(int(primal_solutions[0].shape[0] / n_dofs["space"])):
 space_time_pod_basis = scipy.sparse.block_diag(
     [pod_basis] * time_dofs_per_time_interval)
 
-reduced_system_matrix = space_time_pod_basis.T.dot(
-    matrix_no_bc.dot(space_time_pod_basis)).toarray()
-reduced_jump_matrix = space_time_pod_basis.T.dot(
-    jump_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+print(pod_basis.shape)
+
+reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
+reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
+
+# reduced_system_matrix = space_time_pod_basis.T.dot(
+#     matrix_no_bc.dot(space_time_pod_basis)).toarray()
+# reduced_jump_matrix = space_time_pod_basis.T.dot(
+#     jump_matrix_no_bc.dot(space_time_pod_basis)).toarray()
 
 # %% initilaize dual ROM framework 
 total_energy_dual = 0
@@ -180,24 +191,38 @@ for slab_step in range(int(dual_solutions[0].shape[0] / n_dofs["space"])):
                                                                                ENERGY_DUAL)
 
 # change from the FOM to the POD basis
-space_time_pod_basis_dual = scipy.sparse.block_diag(
-    [pod_basis_dual] * time_dofs_per_time_interval)
-
-reduced_dual_matrix = space_time_pod_basis_dual.T.dot(
-    dual_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
-reduced_dual_jump_matrix_no_bc = space_time_pod_basis_dual.T.dot(
-    jump_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
+# space_time_pod_basis_dual = scipy.sparse.block_diag(
+#     [pod_basis_dual] * time_dofs_per_time_interval)
 
 
-reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(
-    mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+reduced_dual_matrix = reduce_matrix(dual_matrix_no_bc,pod_basis_dual,pod_basis_dual)
+reduced_dual_jump_matrix_no_bc = reduce_matrix(jump_matrix_no_bc,pod_basis_dual,pod_basis_dual)
+
+reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc,pod_basis_dual,pod_basis)
+
+
+# reduced_dual_matrix = space_time_pod_basis_dual.T.dot(
+#     dual_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
+#  reduced_dual_jump_matrix_no_bc = space_time_pod_basis_dual.T.dot(
+#     jump_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
+
+
+# reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(
+#     mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
 
 # %% primal ROM solve
+
+LU_primal, piv_primal = scipy.linalg.lu_factor(reduced_system_matrix)
+LU_dual, piv_dual     = scipy.linalg.lu_factor(reduced_dual_matrix)
+
 reduced_solutions = []
-reduced_solutions_old = space_time_pod_basis.T.dot(np.zeros_like(primal_solutions[0]))
+# reduced_solutions_old = space_time_pod_basis.T.dot(np.zeros_like(primal_solutions[0]))
+reduced_solutions_old = reduce_vector(np.zeros_like(primal_solutions[0]), pod_basis)
+
 
 reduced_dual_solutions = []
-reduced_dual_solutions_old = space_time_pod_basis_dual.T.dot(np.zeros_like(dual_solutions[0]))
+# reduced_dual_solutions_old = space_time_pod_basis_dual.T.dot(np.zeros_like(dual_solutions[0]))
+reduced_dual_solutions_old = reduce_vector(np.zeros_like(dual_solutions[0]), pod_basis)
 
 projected_reduced_solutions = []
 projected_reduced_solutions_before_enrichment = []
@@ -207,6 +232,7 @@ dual_residual = []
 dual_residual.append(0)
 
 temporal_interval_error = []
+temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
 tol = 5e-4/(n_slabs)
@@ -230,12 +256,15 @@ for i in range(n_slabs):
     start_time = time.time()
     
     #primal ROM solve
-    reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i])
+    # reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i])
+    reduced_rhs = reduce_vector(rhs_no_bc[i], pod_basis)
     reduced_rhs -= reduced_jump_matrix.dot(reduced_solutions_old)
-    reduced_solutions = np.linalg.solve(reduced_system_matrix, reduced_rhs)
+    # reduced_solutions = np.linalg.solve(reduced_system_matrix, reduced_rhs)
+    reduced_solutions = scipy.linalg.lu_solve((LU_primal, piv_primal), reduced_rhs)
     # reduced_solutions = scipy.sparse.linalg.spsolve(
         # reduced_system_matrix, reduced_rhs)
-    projected_reduced_solutions.append(space_time_pod_basis.dot(reduced_solutions))
+    # projected_reduced_solutions.append(space_time_pod_basis.dot(reduced_solutions))
+    projected_reduced_solutions.append(project_vector(reduced_solutions, pod_basis))
     projected_reduced_solutions_before_enrichment.append(projected_reduced_solutions[-1])
     extime_solve += time.time() - start_time
     
@@ -249,22 +278,26 @@ for i in range(n_slabs):
     for forwardstep in range(forwardsteps):
         if i+forwardstep+1 >= n_slabs:
             break
-        forwarded_reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i+forwardstep+1])
+        # forwarded_reduced_rhs = space_time_pod_basis.T.dot(rhs_no_bc[i+forwardstep+1])
+        forwarded_reduced_rhs =  reduce_vector(rhs_no_bc[i+forwardstep+1],pod_basis)
         forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-1])
-        forwarded_reduced_solutions.append(np.linalg.solve(reduced_system_matrix, forwarded_reduced_rhs))
+        # forwarded_reduced_solutions.append(np.linalg.solve(reduced_system_matrix, forwarded_reduced_rhs))
+        forwarded_reduced_solutions.append(scipy.linalg.lu_solve((LU_primal, piv_primal), forwarded_reduced_rhs))
         # forwarded_reduced_solutions.append(space_time_pod_basis.T.dot(primal_solutions[i+forwardstep+1]))
            
     # reversed forward dual solve
     forwarded_reduced_dual_solutions = []
-    forwarded_reduced_dual_rhs = reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-1])
-    forwarded_reduced_dual_solutions.append(np.linalg.solve(reduced_dual_matrix,forwarded_reduced_dual_rhs))
+    forwarded_reduced_dual_rhs = 2*reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-1])
+    # forwarded_reduced_dual_solutions.append(np.linalg.solve(reduced_dual_matrix,forwarded_reduced_dual_rhs))
+    forwarded_reduced_dual_solutions.append(scipy.linalg.lu_solve((LU_dual, piv_dual), forwarded_reduced_dual_rhs))
     # print(len(forwarded_reduced_solutions)-1)
 
     for forwardstep in range(2,len(forwarded_reduced_solutions)+1,1):
     # range(len(forwarded_reduced_solutions)-1,0,-1):
-        forwarded_reduced_dual_rhs = reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-forwardstep]) #len(forwarded_reduced_solutions)-forwardstep])
+        forwarded_reduced_dual_rhs = 2*reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-forwardstep]) #len(forwarded_reduced_solutions)-forwardstep])
         forwarded_reduced_dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(forwarded_reduced_dual_solutions[-1])
-        forwarded_reduced_dual_solutions.append(np.linalg.solve(reduced_dual_matrix,forwarded_reduced_dual_rhs))
+        # forwarded_reduced_dual_solutions.append(np.linalg.solve(reduced_dual_matrix,forwarded_reduced_dual_rhs))
+        forwarded_reduced_dual_solutions.append(scipy.linalg.lu_solve((LU_dual, piv_dual), forwarded_reduced_dual_rhs))
 
     if len(forwarded_reduced_dual_solutions) == 1:
         forwarded_reduced_dual_solutions.append(forwarded_reduced_dual_solutions[-1])
@@ -274,40 +307,44 @@ for i in range(n_slabs):
     # else:
     reduced_dual_solutions = forwarded_reduced_dual_solutions[-1]
 
-    projected_reduced_dual_solutions.append(space_time_pod_basis_dual.dot(reduced_dual_solutions))
+    # projected_reduced_dual_solutions.append(space_time_pod_basis_dual.dot(reduced_dual_solutions))
+    projected_reduced_dual_solutions.append(project_vector(reduced_dual_solutions,pod_basis_dual))
     extime_dual_solve += time.time() - start_time
               
-    # check dual FOM residual 
+    
+    
+    # # check dual FOM residual 
     if i>0:
-        F_residual = mass_matrix_no_bc.dot(projected_reduced_solutions[-1])
-        F_residual -= jump_matrix_no_bc.T.dot(space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]))
-        A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
-        dual_residual.append(np.linalg.norm(-A_residual + F_residual))
+        dual_residual.append(0)
+    #     F_residual = 2*mass_matrix_no_bc.dot(projected_reduced_solutions[-1])
+    #     F_residual -= jump_matrix_no_bc.T.dot(space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]))
+    #     A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
+    #     dual_residual.append(np.linalg.norm(-A_residual + F_residual))
 
         
-    if dual_residual[-1] > tol_dual and i < n_slabs-1:
-        last_projected_dual_solution = space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2])
-        pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
-                     pod_basis_dual, 
-                     space_time_pod_basis_dual, 
-                     reduced_dual_matrix, 
-                     reduced_dual_jump_matrix_no_bc, #reduced_dual_jump_matrix*0, 
-                     last_projected_dual_solution,#forwarded_reduced_dual_solutions[-2], 
-                     mass_matrix_no_bc.dot(projected_reduced_solutions[-1]),
-                     jump_matrix_no_bc,
-                     boundary_ids,
-                     dual_matrix,
-                     singular_values_dual,
-                     total_energy_dual,
-                     n_dofs,
-                     time_dofs_per_time_interval,
-                     dual_matrix_no_bc,
-                     ENERGY_DUAL)    
-        reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
-        forwarded_reduced_dual_solutions[-2] = space_time_pod_basis_dual.T.dot(last_projected_dual_solution)
-        # test residual again
-        A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
-        dual_residual[-1] = np.linalg.norm(-A_residual + F_residual)
+    # if dual_residual[-1] > tol_dual and i < n_slabs-1:
+    #     last_projected_dual_solution = space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2])
+    #     pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
+    #                  pod_basis_dual, 
+    #                  space_time_pod_basis_dual, 
+    #                  reduced_dual_matrix, 
+    #                  reduced_dual_jump_matrix_no_bc, #reduced_dual_jump_matrix*0, 
+    #                  last_projected_dual_solution,#forwarded_reduced_dual_solutions[-2], 
+    #                  2*mass_matrix_no_bc.dot(projected_reduced_solutions[-1]),
+    #                  jump_matrix_no_bc,
+    #                  boundary_ids,
+    #                  dual_matrix,
+    #                  singular_values_dual,
+    #                  total_energy_dual,
+    #                  n_dofs,
+    #                  time_dofs_per_time_interval,
+    #                  dual_matrix_no_bc,
+    #                  ENERGY_DUAL)    
+    #     reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+    #     forwarded_reduced_dual_solutions[-2] = space_time_pod_basis_dual.T.dot(last_projected_dual_solution)
+    #     # test residual again
+    #     A_residual = dual_matrix_no_bc.dot(projected_reduced_dual_solutions[-1])
+    #     dual_residual[-1] = np.linalg.norm(-A_residual + F_residual)
     # projected_reduced_dual_solutions.append(dual_solutions[i])
 
     # print(len(forwarded_reduced_solutions))
@@ -330,18 +367,21 @@ for i in range(n_slabs):
         tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
     # temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
     temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[i], tmp))
+    temporal_interval_error_relative.append(temporal_interval_error[-1]/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]))
     temporal_interval_error_incidactor.append(0)
     # or  np.abs(temporal_interval_error[-1]/temporal_interval_error[i-1]):
     extime_error += time.time() - start_time
         
     start_time = time.time()
     # if np.abs(temporal_interval_error[-1]) > tol:
-    if np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
+    if temporal_interval_error_relative[-1] > tol_rel:
+    # np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
         temporal_interval_error_incidactor[-1] = 1
         # print(np.linalg.norm(projected_reduced_solutions[-1]))
-        pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
+        # pod_basis,  space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
+        pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
                      pod_basis, 
-                     space_time_pod_basis, 
+                     # space_time_pod_basis, 
                      reduced_system_matrix, 
                      reduced_jump_matrix, 
                      projected_reduced_solutions[i - 1], 
@@ -355,15 +395,49 @@ for i in range(n_slabs):
                      time_dofs_per_time_interval,
                      matrix_no_bc,
                      ENERGY_PRIMAL)
+        LU_primal, piv_primal = scipy.linalg.lu_factor(reduced_system_matrix)
+
+
+        reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
+        forwarded_reduced_solutions = []
+        forwarded_reduced_solutions.append(reduce_vector(projected_reduced_solutions[-1],pod_basis))
+        # forwarded_reduced_solutions.append(space_time_pod_basis.T.dot(primal_solutions[i]))
+
+        for forwardstep in range(forwardsteps):
+            if i+forwardstep+1 >= n_slabs:
+                break
+            forwarded_reduced_rhs =  reduce_vector(rhs_no_bc[i+forwardstep+1],pod_basis)
+            forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-1])
+            forwarded_reduced_solutions.append(scipy.linalg.lu_solve((LU_primal, piv_primal), forwarded_reduced_rhs))
+               
+        # reversed forward dual solve
+        forwarded_reduced_dual_solutions = []
+        forwarded_reduced_dual_rhs = 2*reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-1])
+        forwarded_reduced_dual_solutions.append(scipy.linalg.lu_solve((LU_dual, piv_dual), forwarded_reduced_dual_rhs))
+
+        for forwardstep in range(2,len(forwarded_reduced_solutions)+1,1):
+            forwarded_reduced_dual_rhs = 2*reduced_mass_matrix_no_bc.dot(forwarded_reduced_solutions[-forwardstep]) #len(forwarded_reduced_solutions)-forwardstep])
+            forwarded_reduced_dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(forwarded_reduced_dual_solutions[-1])
+            forwarded_reduced_dual_solutions.append(scipy.linalg.lu_solve((LU_dual, piv_dual), forwarded_reduced_dual_rhs))
+
+        if len(forwarded_reduced_dual_solutions) == 1:
+            forwarded_reduced_dual_solutions.append(forwarded_reduced_dual_solutions[-1])
+            forwarded_reduced_dual_solutions[-2] = np.zeros_like(forwarded_reduced_dual_solutions[-1])
+
+        reduced_dual_solutions = forwarded_reduced_dual_solutions[-1]
         
-        pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
+        
+        
+        # pod_basis_dual, space_time_pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
+        pod_basis_dual, reduced_dual_matrix, reduced_dual_jump_matrix_no_bc, projected_reduced_dual_solutions[-1], singular_values_dual, total_energy_dual = ROM_update_dual(
                      pod_basis_dual, 
-                     space_time_pod_basis_dual, 
+                     # space_time_pod_basis_dual, 
                      reduced_dual_matrix, 
                      reduced_dual_jump_matrix_no_bc, #reduced_dual_jump_matrix*0, 
-                     space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]), 
+                     # space_time_pod_basis_dual.dot(forwarded_reduced_dual_solutions[-2]), 
+                     project_vector(forwarded_reduced_dual_solutions[-2],pod_basis_dual), 
                      # projected_reduced_dual_solutions[-2],
-                     mass_matrix_no_bc.dot(projected_reduced_solutions[-1]),
+                     2*mass_matrix_no_bc.dot( projected_reduced_solutions[-1]),
                      jump_matrix_no_bc,
                      boundary_ids,
                      dual_matrix,
@@ -373,22 +447,30 @@ for i in range(n_slabs):
                      time_dofs_per_time_interval,
                      dual_matrix_no_bc,
                      ENERGY_DUAL)    
-        reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+        # reduced_mass_matrix_no_bc = space_time_pod_basis_dual.T.dot(mass_matrix_no_bc.dot(space_time_pod_basis)).toarray()
+        reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
+
+        
+        # Lu decompostion of reduced matrices
+        LU_dual, piv_dual     = scipy.linalg.lu_factor(reduced_dual_matrix)
+        
+        
         # reduced_dual_jump_matrix_no_bc = space_time_pod_basis_dual.T.dot(jump_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
         
         # print(np.linalg.norm(projected_reduced_solutions[-1])) 
-        reduced_solutions = space_time_pod_basis.T.dot(projected_reduced_solutions[-1])
+        # reduced_solutions = space_time_pod_basis.T.dot(projected_reduced_solutions[-1])
+        reduced_solutions = reduce_vector(projected_reduced_solutions[-1], pod_basis)
         
-        tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i]
-        if i > 0:
-            tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
+        # tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i]
+        # if i > 0:
+        #     tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
         # temporal_interval_error[-1] = np.dot(dual_solutions[i], tmp)
         
         # temporal_interval_error[-1] = np.dot(projected_reduced_dual_solutions[-1], tmp)
         
         # if np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
-        if np.abs(np.dot(projected_reduced_dual_solutions[-1], tmp))/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
-            print('Error correction failed')
+        # if np.abs(np.dot(projected_reduced_dual_solutions[-1], tmp))/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
+        #     print('Error correction failed')
         
     reduced_solutions_old = reduced_solutions
     extime_update += time.time() - start_time
@@ -487,7 +569,8 @@ time_step_size = 10.0 / (n_dofs["time"] / 2)
 xx, yy = [], []
 xx_FOM, yy_FOM = [], []
 cc = []
-for i, error in enumerate(temporal_interval_error):
+# for i, error in enumerate(temporal_interval_error):
+for i, error in enumerate(temporal_interval_error_relative):
     if temporal_interval_error_incidactor[i] == 0:
         xx += [i * time_step_size,
                (i + 1) * time_step_size, (i + 1) * time_step_size]
@@ -513,7 +596,7 @@ plt.grid()
 plt.legend()
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
 plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{Q_l}$")
+plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
 plt.yscale("log")
 plt.xlim([0, n_slabs*time_step_size])
 #plt.title("temporal evaluation of cost funtional")
@@ -610,8 +693,8 @@ plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
          temporal_interval_error, c='#1f77b4', label="estimate")
 plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
          J_h_t-J_r_t, color='r', label="error")
-plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-         J_h_t-J_r_t_before_enrichement, color='g', label="error_before_enrichment")
+# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+#          J_h_t-J_r_t_before_enrichement, color='g', label="error_before_enrichment")
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
@@ -641,7 +724,22 @@ plt.show()
 # %%
 # for dual_solution in dual_solutions:
 if PLOTTING:
-    def dual_gif(primal_solution, projected_reduced_solution, dual_solution, projected_reduced_dual_solution):
+    primal_max = 0.0
+    primal_min = 0.0
+    for primal_solution in primal_solutions:
+        primal_max = np.max([primal_max,np.max(primal_solution)])
+        primal_min = np.min([primal_min,np.min(primal_solution)])
+        
+    dual_max = 0.0
+    dual_min = 0.0
+    for dual_solution in dual_solutions:
+        dual_max = np.max([dual_max,np.max(dual_solution)])
+        dual_min = np.min([dual_min,np.min(dual_solution)])    
+        
+    print(f"primal = {primal_min} - {primal_max}")
+    print(f"dual   = {dual_min} - {dual_max}")
+    i = 0
+    for (primal_solution,projected_reduced_solution, dual_solution, projected_reduced_dual_solution) in zip(primal_solutions,projected_reduced_solutions,dual_solutions, projected_reduced_dual_solutions):        
         grid_x, grid_y = np.mgrid[0:1:50j, 0:1:50j]
         dual_grid = scipy.interpolate.griddata(
             coordinates_x.T, dual_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
@@ -649,21 +747,21 @@ if PLOTTING:
         
         fig, ((ax3, ax4),(ax1,ax2)) = plt.subplots(2, 2, figsize=(30,30))
         
-        ax1.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
-        im1 = ax1.imshow(dual_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=-0.00025,vmax=0.00025)
+        # ax1.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+        im1 = ax1.imshow(dual_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=dual_min,vmax=dual_max)
         # ax1.set_clim([-0.00025, 0.00025])
-        ax1.set_xlabel("$y$")
-        ax1.set_ylabel("$x$")
+        # ax1.set_xlabel("$y$")
+        # ax1.set_ylabel("$x$")
         # ax1.colorbar()
         # plt.colorbar(im1,ax=ax1)
         
         dual_grid_reduced = scipy.interpolate.griddata(
             coordinates_x.T, projected_reduced_dual_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
-        ax2.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
-        im2 = ax2.imshow(dual_grid_reduced.T, extent=(0, 1, 0, 1), origin='lower',vmin=-0.00025,vmax=0.00025)
+        # ax2.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+        im2 = ax2.imshow(dual_grid_reduced.T, extent=(0, 1, 0, 1), origin='lower',vmin=dual_min,vmax=dual_max)
         # ax2.set_clim(-0.00025, 0.00025)
-        ax2.set_xlabel("$y$")
-        ax2.set_ylabel("$x$")
+        # ax2.set_xlabel("$y$")
+        # ax2.set_ylabel("$x$")
         # ax2.set_colorbar()
         # plt.colorbar(im2,ax=ax2)
         # plt.show()
@@ -671,30 +769,81 @@ if PLOTTING:
         primal_grid = scipy.interpolate.griddata(
             coordinates_x.T, primal_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
         # fig, _ = plt.subplots(figsize=(15,15))
-        ax3.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
-        im3 = ax3.imshow(primal_grid.T, extent=(0, 1, 0, 1), origin='lower') #,vmin=-0.00025,vmax=0.00025)
+        # ax3.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+        im3 = ax3.imshow(primal_grid.T, extent=(0, 1, 0, 1), origin='lower' ,vmin=primal_min,vmax=primal_max)
         # ax1.set_clim([-0.00025, 0.00025])
-        ax3.set_xlabel("$y$")
-        ax3.set_ylabel("$x$")
+        # ax3.set_xlabel("$y$")
+        # ax3.set_ylabel("$x$")
         # ax1.colorbar()
         # plt.colorbar(im1,ax=ax1)
         
         reduced_primal_grid = scipy.interpolate.griddata(
             coordinates_x.T, projected_reduced_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
-        ax4.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
-        im4 = ax4.imshow(reduced_primal_grid.T, extent=(0, 1, 0, 1), origin='lower')#,vmin=-0.00025,vmax=0.00025)
+        # ax4.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+        im4 = ax4.imshow(reduced_primal_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=primal_min,vmax=primal_max)
         # ax2.set_clim(-0.00025, 0.00025)
-        ax4.set_xlabel("$y$")
-        ax4.set_ylabel("$x$")
-        # ax2.set_colorbar()
-        # plt.colorbar(im2,ax=ax2)
-        # plt.show()
-        
-        fig.canvas.draw()       # draw the canvas, cache the renderer
-        image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-        image  = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # ax4.set_xlabel("$y$")
+        # ax4.set_ylabel("$x$")
+        plt.show()
+        fig.savefig(SAVE_PATH + f"movie/movie{i}.png", format='png')
+        i += 1
+                            # f"/primal_solution{i:05}.vtk    
     
-        return image
+    
+    # def dual_gif(primal_solution, projected_reduced_solution, dual_solution, projected_reduced_dual_solution):
+    #     grid_x, grid_y = np.mgrid[0:1:50j, 0:1:50j]
+    #     dual_grid = scipy.interpolate.griddata(
+    #         coordinates_x.T, dual_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
+    #     # fig, _ = plt.subplots(figsize=(15,15))
+        
+    #     fig, ((ax3, ax4),(ax1,ax2)) = plt.subplots(2, 2, figsize=(30,30))
+        
+    #     ax1.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+    #     im1 = ax1.imshow(dual_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=dual_min,vmax=dual_max)
+    #     # ax1.set_clim([-0.00025, 0.00025])
+    #     ax1.set_xlabel("$y$")
+    #     ax1.set_ylabel("$x$")
+    #     # ax1.colorbar()
+    #     # plt.colorbar(im1,ax=ax1)
+        
+    #     dual_grid_reduced = scipy.interpolate.griddata(
+    #         coordinates_x.T, projected_reduced_dual_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
+    #     ax2.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+    #     im2 = ax2.imshow(dual_grid_reduced.T, extent=(0, 1, 0, 1), origin='lower',vmin=dual_min,vmax=dual_max)
+    #     # ax2.set_clim(-0.00025, 0.00025)
+    #     ax2.set_xlabel("$y$")
+    #     ax2.set_ylabel("$x$")
+    #     # ax2.set_colorbar()
+    #     # plt.colorbar(im2,ax=ax2)
+    #     # plt.show()
+        
+    #     primal_grid = scipy.interpolate.griddata(
+    #         coordinates_x.T, primal_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
+    #     # fig, _ = plt.subplots(figsize=(15,15))
+    #     ax3.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+    #     im3 = ax3.imshow(primal_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=primal_min,vmax=primal_max)
+    #     # ax1.set_clim([-0.00025, 0.00025])
+    #     ax3.set_xlabel("$y$")
+    #     ax3.set_ylabel("$x$")
+    #     # ax1.colorbar()
+    #     # plt.colorbar(im1,ax=ax1)
+        
+    #     reduced_primal_grid = scipy.interpolate.griddata(
+    #         coordinates_x.T, projected_reduced_solution[0:n_dofs["space"]], (grid_x, grid_y), method=INTERPOLATION_TYPE)
+    #     ax4.set_title(f"Dual solution (ref={cycle.split('=')[1]})")
+    #     im4 = ax4.imshow(reduced_primal_grid.T, extent=(0, 1, 0, 1), origin='lower',vmin=primal_min,vmax=primal_max)
+    #     # ax2.set_clim(-0.00025, 0.00025)
+    #     ax4.set_xlabel("$y$")
+    #     ax4.set_ylabel("$x$")
+    #     # ax2.set_colorbar()
+    #     # plt.colorbar(im2,ax=ax2)
+    #     # plt.show()
+        
+    #     fig.canvas.draw()       # draw the canvas, cache the renderer
+    #     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+    #     image  = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    
+    #     return image
 
-    imageio.mimsave('./dual_solution.gif', [dual_gif(primal_solution, projected_reduced_solution,dual_solution, projected_reduced_dual_solution) for (primal_solution,projected_reduced_solution, dual_solution, projected_reduced_dual_solution) in zip(primal_solutions,projected_reduced_solutions,dual_solutions, projected_reduced_dual_solutions)], fps=3)
+    # imageio.mimsave('./solution.mp4', [dual_gif(primal_solution, projected_reduced_solution,dual_solution, projected_reduced_dual_solution) for (primal_solution,projected_reduced_solution, dual_solution, projected_reduced_dual_solution) in zip(primal_solutions,projected_reduced_solutions,dual_solutions, projected_reduced_dual_solutions)], fps=10)
     

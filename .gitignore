@@ -7,4 +7,5 @@
 **/main
 **/output/
 **/CMakeLists.txt
-
+**.submit
+**/logs/*

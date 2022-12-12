@@ -15,10 +15,10 @@ INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 CASE = ""  # "rotating_circle"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Wave/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/BangerthGeigerRannacher/"
-cycle = "cycle=4"
+cycle = "cycle=3"
 SAVE_PATH = cycle + "/output_ROM/"
 
-ENERGY_PRIMAL = 0.9999999999999  # 0.99999999999999
+ENERGY_PRIMAL = 0.999999  # 0.99999999999999
 ENERGY_DUAL = 0.9999
 # %% vtk plotting requeiremnets
 
@@ -121,6 +121,9 @@ coordinates = np.vstack((
 # n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
 
+
+cfl = (list_coordinates_t[0][1] - list_coordinates_t[0][0])/(np.sqrt(2)*(coordinates_x[0][1] - coordinates_x[0][0]))
+
 # ------------
 # %% reduced linear equation system size, since solution of first time DoF can be enforced
 # -----------
@@ -172,7 +175,7 @@ execution_time_FOM = end_execution - start_execution
 
 print("Primal FOM time:   " + str(execution_time_FOM))
 print("CFL number:        " +
-      str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
+      str(cfl))
 print("n_dofs[space] =", n_dofs["space"])
 
 # save_vtk(OUTPUT_PATH + cycle + "/py_solution00000.vtk", {"displacement": dof_matrix.dot(
@@ -384,32 +387,20 @@ for i in range(n_slabs):
         project_vector(reduced_solution, pod_basis))
     reduced_solution_old = reduced_solution
 
-print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
+    print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
       [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
-print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
+    print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
       [n_dofs["space"]:])/np.linalg.norm(primal_solutions[i+1][n_dofs["space"]:]))
-print(" ")
+    print(" ")
 
-norm_primal_displacement = []
-norm_reduced_displacement = []
-norm_primal_velo = []
-norm_reduced_velo = []
 
-for i in range(n_slabs+1):
-    norm_primal_displacement.append(np.linalg.norm(
-        primal_solutions[i][:n_dofs["space"]]))
-    norm_reduced_displacement.append(np.linalg.norm(
-        projected_reduced_solutions[i][:n_dofs["space"]]))
-    norm_primal_velo.append(np.linalg.norm(
-        primal_solutions[i][n_dofs["space"]:]))
-    norm_reduced_velo.append(np.linalg.norm(
-        projected_reduced_solutions[i][n_dofs["space"]:]))
+
 
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
 print("ROM time:        " + str(execution_time_ROM))
 print("CFL number:        " +
-      str((list_coordinates_t[0][1] - list_coordinates_t[0][0])/(coordinates_x[0][1] - coordinates_x[0][0])))
+      str(cfl))
 
 for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
     save_vtk(OUTPUT_PATH + cycle + f"/primal_solution{i:05}.vtk",
@@ -420,6 +411,19 @@ for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
 # 	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), \
 #             "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
 
+norm_primal_displacement = []
+norm_reduced_displacement = []
+norm_primal_velo = []
+norm_reduced_velo = []
+for i in range(n_slabs+1):
+    norm_primal_displacement.append(np.linalg.norm(
+        primal_solutions[i][:n_dofs["space"]]))
+    norm_reduced_displacement.append(np.linalg.norm(
+        projected_reduced_solutions[i][:n_dofs["space"]]))
+    norm_primal_velo.append(np.linalg.norm(
+        primal_solutions[i][n_dofs["space"]:]))
+    norm_reduced_velo.append(np.linalg.norm(
+        projected_reduced_solutions[i][n_dofs["space"]:]))
 # %%
 # plot sigs
 plt.rc('text', usetex=True)

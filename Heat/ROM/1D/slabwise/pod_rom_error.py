@@ -172,6 +172,7 @@ for number_runs in range(1):
     # plot primal solution
     primal_solution = np.hstack(primal_solutions)
     if PLOTTING:
+    last_dual_solution = 
         grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
         primal_grid = scipy.interpolate.griddata(
             coordinates, primal_solution, (grid_t, grid_x), method=INTERPOLATION_TYPE)

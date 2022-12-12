@@ -292,7 +292,7 @@ private:
 template<int dim>
 double DualRightHandSide<dim>::value(const Point<dim> &p,
 		const unsigned int /*component*/) const {
-	Assert(dim == 1, ExcInternalError());
+//	Assert(dim == 1, ExcInternalError());
 //	const double t = this->get_time();
 	// f(t,x) = (2/T) * 1_(0,0.5)(x) -> 1_D(x) := { 1 for x in D and 0 else }
 	return (2. / T) * (p[0] <= 0.5);
@@ -824,7 +824,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  }
 	}
 	
-	std::string output_dir = "../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/cycle=" + std::to_string(cycle) + "/";
+	std::string output_dir = "../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/";
 	
 	////////////////////////////////////////////////////
 	// save system & jump matrix and rhs to file (NO BC)
@@ -902,7 +902,7 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsi
     
     if (first_slab)
     {
-      std::ofstream boundary_id_out("../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
+      std::ofstream boundary_id_out("../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
       for (unsigned int i = 0; i < boundary_ids.size()-1; ++i)
 	boundary_id_out << boundary_ids[i] << " ";
       boundary_id_out << boundary_ids[boundary_ids.size()-1];
@@ -1058,7 +1058,7 @@ void SpaceTime<1>::output_svg(std::ofstream &out, Vector<double> &space_solution
 
 template<>
 void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
-	std::string output_dir = "../../Data/1D/" + problem_name + "/slabwise/cycle=" + std::to_string(refinement_cycle) + "/";
+	std::string output_dir = "../../Data/1D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
 	
 	// highest and lowest value of solution (hardcoded for the given 1D problem)
 	double y_max = 0.009; //1.4; //std::max(*std::max_element(solution.begin(), solution.end()), 0.);
@@ -1087,7 +1087,7 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
 
 template<>
 void SpaceTime<2>::output_results(const unsigned int refinement_cycle) {
-	std::string output_dir = "../../Data/2D/" + problem_name + "/slabwise/cycle=" + std::to_string(refinement_cycle) + "/";
+	std::string output_dir = "../../Data/2D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
 
 	// output results as VTK files
 	for (auto time_point : time_support_points)
@@ -1280,8 +1280,10 @@ void SpaceTime<dim>::run() {
 		std::string dim_dir = "../../Data/" + std::to_string(dim) + "D/";
 		std::string problem_dir = dim_dir + problem_name + "/";
 		std::string slabwise_dir = problem_dir + "slabwise/";
-		std::string output_dir = slabwise_dir + "cycle=" + std::to_string(cycle) + "/";
-		for (auto dir : {"../../Data/", dim_dir.c_str(), problem_dir.c_str(), slabwise_dir.c_str(), output_dir.c_str()})
+		std::string output_dir_tmp = slabwise_dir + "FOM/";
+		std::string output_dir = slabwise_dir + "FOM/"+ "cycle=" + std::to_string(cycle) + "/";
+		std::cout << output_dir << std::endl;
+		for (auto dir : {"../../Data/", dim_dir.c_str(), problem_dir.c_str(), slabwise_dir.c_str(), output_dir_tmp.c_str(), output_dir.c_str()})
 		  mkdir(dir, S_IRWXU);
 
 		// reset values from last refinement cycle
@@ -1386,12 +1388,23 @@ int main() {
 		const std::string problem_name = "rotating_circle"; //"two_sources";
 		const int dim = 2; //1;
 
+		std::vector<unsigned int> r;
+		std::vector<double> t = {0.};
+		double T = 10.;
+		int N = 16*4;
+		double dt = T / N;
+		for (unsigned int i = 0; i < N; ++i)
+		{
+			r.push_back(1);
+			t.push_back((i+1)*dt);
+		}
+
 		// run the simulation
 		SpaceTime<dim> space_time_problem(
 		  problem_name,        // problem_name
 		  1,                   // s ->  spatial FE degree
-		  {1,1,1,1},           // r -> temporal FE degree
-		  {0.,1.,2.,3.,4.},    // time points 
+		  r,           // r -> temporal FE degree
+		  t,    // time points
 		  (dim == 2) ? 7 : 10, // max_n_refinement_cycles,
 		  true,                // refine_space
 		  true,                // refine_time

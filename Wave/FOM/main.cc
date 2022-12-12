@@ -429,7 +429,7 @@ void SpaceTime<2>::make_grids() {
 	// Simplified version of Example 5.4 from Bangerth, Geiger, Rannacher paper
 
 	// create grids
-	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(-5., -5.), Point<2>(5., 5.));
+	GridGenerator::hyper_rectangle(space_triangulation, Point<2>(-50., -50.), Point<2>(50., 50.));
 	for (auto &slab : slabs)
 	  GridGenerator::hyper_rectangle(slab->time_triangulation, Point<1>(slab->start_time), Point<1>(slab->end_time));
 
@@ -1151,7 +1151,7 @@ int main() {
 
 		std::vector<unsigned int> r;
                 std::vector<double> t = {0.};
-                double T = 40.;
+                double T = 100.;
                 int N = 8; //2*4;
                 double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)

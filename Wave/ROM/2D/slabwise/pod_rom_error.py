@@ -8,26 +8,29 @@ import matplotlib.pyplot as plt
 import os
 import time
 import sys
-from iPOD import iPOD, reduce_matrix, reduce_vector, project_vector
+from iPOD_naive import iPOD, reduce_matrix, reduce_vector, project_vector
 
 PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 CASE = ""  # "rotating_circle"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Wave/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/BangerthGeigerRannacher/"
-cycle = "cycle=2"
+cycle = "cycle=3"
 SAVE_PATH = cycle + "/output_ROM/"
 
-ENERGY_PRIMAL = 0.9999
-ENERGY_DUAL = 0.9999
+ENERGY_PRIMAL_DISPLACEMENT = 0.99999
+ENERGY_PRIMAL_VELOCITY = 0.999999
+ENERGY_DUAL = 0.9999999
 # %% vtk plotting requeiremnets
+
+
 def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines = [
         "# vtk DataFile Version 3.0",
         "PDE SOLUTION",
         "ASCII",
         "DATASET UNSTRUCTURED_GRID",
-	""
+        ""
     ]
 
     if (cycle != None or time != None):
@@ -44,7 +47,8 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
     for key, value in solution.items():
         lines.append(f"SCALARS {key} double 1")
         lines.append("LOOKUP_TABLE default")
-        lines.append(" ".join(np.round(value, decimals=7).astype(np.double).astype(str)) + " ")
+        lines.append(" ".join(np.round(value, decimals=7).astype(
+            np.double).astype(str)) + " ")
 
     with open(file_name, "w") as file:
         file.write("\n".join(lines))
@@ -61,11 +65,11 @@ with open(OUTPUT_PATH + cycle + "/solution00000.vtk", "r") as f:
             grid.append(line.strip("\n"))
             if line.startswith("POINT_DATA"):
                 break
-#print(grid)
+# print(grid)
 dof_vector = np.loadtxt(OUTPUT_PATH + cycle + "/dof.txt").astype(int)
-dof_matrix = scipy.sparse.dok_matrix((dof_vector.shape[0],dof_vector.max()+1))
+dof_matrix = scipy.sparse.dok_matrix((dof_vector.shape[0], dof_vector.max()+1))
 for i, j in enumerate(list(dof_vector)):
-   dof_matrix[i,j] = 1.
+    dof_matrix[i, j] = 1.
 
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
@@ -74,7 +78,8 @@ print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
 
-[data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/dual_matrix_no_bc.txt")
+[data, row, column] = np.loadtxt(
+    OUTPUT_PATH + cycle + "/dual_matrix_no_bc.txt")
 functional_matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
 
@@ -97,8 +102,8 @@ initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 
 # NO boundary_ids, since we have only homogeneous Neumann boundary conditions for the wave equation which represent reflecting boundaries
 # %% applying BC to primal matrix
-#primal_matrix = matrix_no_bc.tocsr()
-#for row in range(int(matrix_no_bc.shape[0]/2)):
+# primal_matrix = matrix_no_bc.tocsr()
+# for row in range(int(matrix_no_bc.shape[0]/2)):
 #    for col in primal_matrix.getrow(row).nonzero()[1]:
 #        primal_matrix[row, col] = 1. if row == col else 0.
 
@@ -114,20 +119,29 @@ coordinates = np.vstack((
     np.tensordot(coordinates_t, np.ones_like(coordinates_x), 0).flatten(),
     np.tensordot(np.ones_like(coordinates_t), coordinates_x, 0).flatten()
 )).T
-# n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block 
+# n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
+
+
+cfl = (list_coordinates_t[0][1] - list_coordinates_t[0][0]) / \
+    (np.sqrt(2)*(coordinates_x[0][1] - coordinates_x[0][0]))
+
 
 # ------------
 # %% reduced linear equation system size, since solution of first time DoF can be enforced
-#-----------
+# -----------
 #  A  |  B
-#-----------
+# -----------
 #  C  |  D
-#-----------
-A = matrix_no_bc[:2*n_dofs["space"],:2*n_dofs["space"]] # need this for   dual problem
-B = matrix_no_bc[:2*n_dofs["space"],2*n_dofs["space"]:] # need this for   dual problem
-C = matrix_no_bc[2*n_dofs["space"]:,:2*n_dofs["space"]] # need this for primal and dual problem
-D = matrix_no_bc[2*n_dofs["space"]:,2*n_dofs["space"]:] # need this for primal and dual problem
+# -----------
+# need this for   dual problem
+A = matrix_no_bc[:2*n_dofs["space"], :2*n_dofs["space"]]
+# need this for   dual problem
+B = matrix_no_bc[:2*n_dofs["space"], 2*n_dofs["space"]:]
+# need this for primal and dual problem
+C = matrix_no_bc[2*n_dofs["space"]:, :2*n_dofs["space"]]
+# need this for primal and dual problem
+D = matrix_no_bc[2*n_dofs["space"]:, 2*n_dofs["space"]:]
 
 print(f"C.shape = {C.shape}")
 print(f"D.shape = {D.shape}")
@@ -139,36 +153,40 @@ print(f"matrix_no_bc.shape = {matrix_no_bc.shape}")
 start_execution = time.time()
 last_primal_solution = np.zeros((2*n_dofs["space"],))
 last_primal_solution[:] = initial_solution[:]
-primal_solutions = []
+primal_solutions = [initial_solution[:]]
 for i in range(n_slabs):
     # creating primal rhs and applying BC to it
-    primal_rhs = rhs_no_bc[i][2*n_dofs["space"]:].copy() - C.dot(last_primal_solution)
+    primal_rhs = rhs_no_bc[i][2*n_dofs["space"]                              :].copy() - C.dot(last_primal_solution)
 
     primal_solutions.append(
-        scipy.sparse.linalg.spsolve(D,primal_rhs))
+        scipy.sparse.linalg.spsolve(D, primal_rhs))
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
 
 print("Primal FOM time:   " + str(execution_time_FOM))
+print("CFL number:        " +
+      str(cfl))
 print("n_dofs[space] =", n_dofs["space"])
 
-save_vtk(OUTPUT_PATH + cycle + "/py_solution00000.vtk", {"displacement": dof_matrix.dot(initial_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(initial_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=0, time=0.)
+# save_vtk(OUTPUT_PATH + cycle + "/py_solution00000.vtk", {"displacement": dof_matrix.dot(
+#     initial_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(initial_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=0, time=0.)
 for i, primal_solution in enumerate(primal_solutions):
-	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
+    save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+        primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
 
 # %% applying BC to dual matrix
 # dual_matrix = matrix_no_bc.T.tocsr()
 # for row in range(2*n_dofs["space"]):
 #     for col in dual_matrix.getrow(row).nonzero()[1]:
 #         dual_matrix[row, col] = 1. if row == col else 0.
-        
+
 # ------------
 # %% reduced linear equation system size, since solution of first time DoF can be enforced
-J_1 = functional_matrix_no_bc[:2*n_dofs["space"],:2*n_dofs["space"]]
-J_2 = functional_matrix_no_bc[:2*n_dofs["space"],2*n_dofs["space"]:]
-J_3 = functional_matrix_no_bc[2*n_dofs["space"]:,:2*n_dofs["space"]]
-J_4 = functional_matrix_no_bc[2*n_dofs["space"]:,2*n_dofs["space"]:]
+J_1 = functional_matrix_no_bc[:2*n_dofs["space"], :2*n_dofs["space"]]
+J_2 = functional_matrix_no_bc[:2*n_dofs["space"], 2*n_dofs["space"]:]
+J_3 = functional_matrix_no_bc[2*n_dofs["space"]:, :2*n_dofs["space"]]
+J_4 = functional_matrix_no_bc[2*n_dofs["space"]:, 2*n_dofs["space"]:]
 
 print(f"J_1.shape = {J_1.shape}")
 print(f"J_2.shape = {J_2.shape}")
@@ -176,13 +194,14 @@ print(f"J_2.shape = {J_2.shape}")
 # ------------
 # %% dual FOM solve
 start_execution = time.time()
-last_dual_solution =  np.zeros((2*n_dofs["space"],))
+last_dual_solution = np.zeros((2*n_dofs["space"],))
 # last_dual_solution[:] = initial_solution[:]
 # zero initial condition for dual problem
-dual_solutions = []
+dual_solutions = [np.zeros((2*n_dofs["space"],))]
 for i in list(range(n_slabs))[::-1]:
     # creating dual rhs and applying BC to it
-    dual_rhs = J_2.dot(primal_solutions[i]) #functional_matrix_no_bc.dot(primal_solutions[i])
+    # functional_matrix_no_bc.dot(primal_solutions[i])
+    dual_rhs = J_2.dot(primal_solutions[i])
     if i > 0:
         dual_rhs += J_1.dot(primal_solutions[i-1])
     else:
@@ -201,37 +220,45 @@ print("Dual FOM time:   " + str(execution_time_FOM))
 dual_solutions = dual_solutions[::-1]
 
 for i, dual_solution in enumerate(dual_solutions):
-	save_vtk(OUTPUT_PATH + cycle + f"/py_dual_solution{i:05}.vtk", {"displacement": dof_matrix.dot(dual_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
+    save_vtk(OUTPUT_PATH + cycle + f"/py_dual_solution{i:05}.vtk", {"displacement": dof_matrix.dot(dual_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+        dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
+# for i, primal_solution in enumerate(primal_solutions):
+#     save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+#         primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
 
 # %% goal functionals
 J = {"u_h": 0., "u_r": 0.}
 J_h_t = np.empty([n_slabs, 1])
 
 
-for i in range(n_slabs):
+for i in range(1,n_slabs+1):
     u_2 = primal_solutions[i][:]
     if i > 0:
         u_1 = primal_solutions[i-1][:]
     else:
-        u_1 = initial_solution[:]   
-    J_h_t[i] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
+        u_1 = initial_solution[:]
+    J_h_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
+        u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
 J["u_h"] = np.sum(J_h_t)
 
 
 # %%
 # check reducablility
 
-bunch_size = len(primal_solutions) #1
+bunch_size = 1 #len(primal_solutions)  # 1
 
 total_energy = {"displacement": 0, "velocity": 0}
 pod_basis = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
 bunch = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
-singular_values = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+singular_values = {"displacement": np.empty(
+    [0, 0]), "velocity": np.empty([0, 0])}
 
 total_energy_dual = {"displacement": 0, "velocity": 0}
-pod_basis_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+pod_basis_dual = {"displacement": np.empty(
+    [0, 0]), "velocity": np.empty([0, 0])}
 bunch_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
-singular_values_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+singular_values_dual = {"displacement": np.empty(
+    [0, 0]), "velocity": np.empty([0, 0])}
 
 # total_energy_displacement = 0
 # pod_basis_displacement = np.empty([0, 0])
@@ -243,64 +270,93 @@ singular_values_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([
 # bunch_displacement = np.empty([0, 0])
 # singular_values_displacement = np.empty([0, 0])
 
-for primal_solution in primal_solutions:#[0:1]:
-    pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \ 
-        = iPOD(pod_basis["displacement"], 
-               bunch["displacement"], 
-               singular_values["displacement"], 
+for i,primal_solution in enumerate(primal_solutions):  # [0:1]:
+    # if i > len(primal_solutions)/3:
+    #     break
+    pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
+        = iPOD(pod_basis["displacement"],
+               bunch["displacement"],
+               singular_values["displacement"],
                primal_solution[0:n_dofs["space"]],
                total_energy["displacement"],
-               ENERGY_PRIMAL,
+               ENERGY_PRIMAL_DISPLACEMENT,
                bunch_size)
-    pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] = iPOD(pod_basis["velocity"], 
-                                                                                                           bunch["velocity"], 
-                                                                                                           singular_values["velocity"], 
-                                                                                                           primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+    pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] = iPOD(pod_basis["velocity"],
+                                                                                                           bunch["velocity"],
+                                                                                                           singular_values["velocity"],
+                                                                                                           primal_solution[
+                                                                                                               n_dofs["space"]:2 * n_dofs["space"]],
                                                                                                            total_energy["velocity"],
-                                                                                                           ENERGY_PRIMAL,
+                                                                                                           ENERGY_PRIMAL_VELOCITY,
                                                                                                            bunch_size)
-for dual_solution in dual_solutions: #[0:1]:
-    pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] = iPOD(pod_basis_dual["displacement"], 
-                                                                                                                                               bunch_dual["displacement"], 
-                                                                                                                                               singular_values_dual["displacement"], 
-                                                                                                                                               dual_solution[0:n_dofs["space"]],
-                                                                                                                                               total_energy_dual["displacement"],
-                                                                                                                                               ENERGY_DUAL,
-                                                                                                                                               bunch_size)
-    pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] = iPOD(pod_basis_dual["velocity"], 
-                                                                                                                               bunch_dual["velocity"], 
-                                                                                                                               singular_values_dual["velocity"], 
-                                                                                                                               dual_solution[n_dofs["space"]:2 * n_dofs["space"]],
-                                                                                                                               total_energy_dual["velocity"],
-                                                                                                                               ENERGY_DUAL,
-                                                                                                                               bunch_size)  
+for dual_solution in dual_solutions:  # [0:1]:
+    pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] = iPOD(pod_basis_dual["displacement"],
+                                                                                                                                               bunch_dual[
+        "displacement"],
+        singular_values_dual[
+        "displacement"],
+        dual_solution[
+        0:n_dofs["space"]],
+        total_energy_dual[
+        "displacement"],
+        ENERGY_DUAL,
+        bunch_size)
+    pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] = iPOD(pod_basis_dual["velocity"],
+                                                                                                                               bunch_dual[
+        "velocity"],
+        singular_values_dual[
+        "velocity"],
+        dual_solution[
+        n_dofs["space"]:2 * n_dofs["space"]],
+        total_energy_dual[
+        "velocity"],
+        ENERGY_DUAL,
+        bunch_size)
+    
+    
+
+
 print(pod_basis["displacement"].shape[1])
 print(pod_basis["velocity"].shape[1])
 print(pod_basis_dual["displacement"].shape[1])
 print(pod_basis_dual["velocity"].shape[1])
 
 # compute reduced matrices
-# needed for dual 
-A_reduced = reduce_matrix(A,pod_basis_dual,pod_basis_dual)           
-B_reduced = reduce_matrix(B,pod_basis_dual,pod_basis_dual)  
-J_1_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)          
-J_2_reduced = reduce_matrix(J_1,pod_basis_dual,pod_basis)          
-# needed for primal         
-C_reduced = reduce_matrix(C,pod_basis,pod_basis)           
-D_reduced = reduce_matrix(D,pod_basis,pod_basis) 
+# needed for dual
+A_reduced = reduce_matrix(A, pod_basis_dual, pod_basis_dual)
+B_reduced = reduce_matrix(B, pod_basis_dual, pod_basis_dual)
+J_1_reduced = reduce_matrix(J_1, pod_basis_dual, pod_basis)
+J_2_reduced = reduce_matrix(J_1, pod_basis_dual, pod_basis)
+# needed for primal
+C_reduced = reduce_matrix(C, pod_basis, pod_basis)
+D_reduced = reduce_matrix(D, pod_basis, pod_basis)
 
 # %% primal ROM solve
 reduced_solutions = []
-reduced_solution_old = reduce_vector(initial_solution[:],pod_basis)
+reduced_solution_old = reduce_vector(initial_solution[:], pod_basis)
 
-print(np.linalg.norm(initial_solution[:] -   project_vector(reduce_vector(initial_solution[:],pod_basis), pod_basis)            ))
+print(np.linalg.norm(initial_solution[:] - project_vector(
+    reduce_vector(initial_solution[:], pod_basis), pod_basis)))
 
 reduced_dual_solutions = []
 reduced_dual_solution_old = reduce_vector(dual_solutions[0], pod_basis_dual)
+forward_reduced_dual_solution = np.zeros_like(
+    reduce_vector(dual_solutions[0], pod_basis_dual))
 
-projected_reduced_solutions = []
+
+projected_reduced_solutions = [project_vector(
+    reduce_vector(initial_solution[:], pod_basis), pod_basis)]
 projected_reduced_solutions_before_enrichment = []
-projected_reduced_dual_solutions = []
+
+projected_reduced_dual_solutions = [project_vector(
+    reduce_vector(dual_solutions[0], pod_basis_dual), pod_basis_dual)]
+
+print(np.linalg.norm(initial_solution[:] - project_vector(
+    reduce_vector(initial_solution[:], pod_basis), pod_basis)))
+print(np.linalg.norm(
+    projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
+print(np.linalg.norm(
+    projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
 
 dual_residual = []
 dual_residual.append(0)
@@ -322,47 +378,195 @@ start_execution = time.time()
 extime_solve = 0.0
 extime_dual_solve = 0.0
 extime_error = 0.0
-extime_update  =0.0
+extime_update = 0.0
 
 for i in range(n_slabs):
     start_time = time.time()
-    primal_rhs = rhs_no_bc[i][2*n_dofs["space"]:].copy() - C.dot(last_primal_solution)
     # primal ROM solve
-    reduced_rhs = reduce_vector(rhs_no_bc[i][2*n_dofs["space"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
-    reduced_solution = np.linalg.solve(D_reduced,reduced_rhs)
+    reduced_rhs = reduce_vector(
+        rhs_no_bc[i][2*n_dofs["space"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
+    reduced_solution = np.linalg.solve(D_reduced, reduced_rhs)
+
+    projected_reduced_solutions.append(
+        project_vector(reduced_solution, pod_basis))
+
+    forwarded_reduced_solutions = []
+    forwarded_reduced_solutions.append(reduced_solution_old)
+    forwarded_reduced_solutions.append(reduced_solution)
+
+    for forwardstep in range(forwardsteps):
+        if i+forwardstep+1 >= n_slabs:
+            break
+        forwarded_reduced_rhs = reduce_vector(rhs_no_bc[i+forwardstep+1][2*n_dofs["space"]:].copy(
+        ), pod_basis) - C_reduced.dot(forwarded_reduced_solutions[-1])
+        forwarded_reduced_solutions.append(
+            np.linalg.solve(D_reduced, forwarded_reduced_rhs))
+    # forwarded_reduced_solutions.append(space_time_pod_basis.T.dot(primal_solutions[i+forwardstep+1]))
+
+    # reversed forward dual solve
+    forwarded_reduced_dual_solutions = [
+        np.zeros_like(reduced_dual_solution_old)]
+
+    for forwardstep in range(1, len(forwarded_reduced_solutions), 1):
+        # range(len(forwarded_reduced_solutions)-1,0,-1):
+        forwarded_reduced_dual_rhs = J_2_reduced.dot(
+            forwarded_reduced_solutions[-forwardstep]) + J_1_reduced.dot(forwarded_reduced_solutions[-forwardstep-1])
+        forwarded_reduced_dual_rhs -= B_reduced.T.dot(
+            forwarded_reduced_dual_solutions[-1])
+        forwarded_reduced_dual_solutions.append(
+            np.linalg.solve(A_reduced.T, forwarded_reduced_dual_rhs))
+
+    reduced_dual_solution = forwarded_reduced_dual_solutions[-1]
+
+    projected_reduced_dual_solutions.append(
+        project_vector(reduced_dual_solution, pod_basis_dual))
+
+
+    tmp = -D.dot(projected_reduced_solutions[-1]) + rhs_no_bc[i][2*n_dofs["space"]:].copy()
+    # temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
+    temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[-1], tmp))
+    temporal_interval_error_incidactor.append(0)
     
-    projected_reduced_solutions.append(project_vector(reduced_solution,pod_basis))
+    # reduced_dual_rhs=J_2_reduced.dot(reduced_solution) + J_1_reduced.dot(reduced_solution_old)
+    # reduced_dual_rhs -= B_reduced.T.dot(forward_reduced_dual_solutions[-1])
+
+    # reduced_dual_solution=np.linalg.solve(A_reduced.T, reduced_dual_rhs)
+
     reduced_solution_old = reduced_solution
-    
-    print(np.linalg.norm(projected_reduced_solutions[i][:n_dofs["space"]]-primal_solutions[i][:n_dofs["space"]]))
-    print(np.linalg.norm(projected_reduced_solutions[i][n_dofs["space"]:]-primal_solutions[i][n_dofs["space"]:]))
+
+    print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
+                         [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
+    print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
+                         [n_dofs["space"]:])/np.linalg.norm(primal_solutions[i+1][n_dofs["space"]:]))
+    if np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]) != 0.0 and np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]) != 0.0:
+        print(np.linalg.norm(projected_reduced_dual_solutions[i+1][:n_dofs["space"]]-dual_solutions[i+1]
+                             [:n_dofs["space"]])/np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]))
+        print(np.linalg.norm(projected_reduced_dual_solutions[i+1][n_dofs["space"]:]-dual_solutions[i+1]
+                             [n_dofs["space"]:])/np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]))
     print(" ")
+
+
+# %% postprocessing
+J_r_t = np.empty([n_slabs, 1])
+for i in range(1,n_slabs+1):
+    u_2 = projected_reduced_solutions[i][:]
+    u_1 = projected_reduced_solutions[i-1][:]
+    J_r_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
+        u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
+J["u_r"] = np.sum(J_r_t)
+
+
 
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
 print("ROM time:        " + str(execution_time_ROM))
+print("CFL number:        " + str(cfl))
 
 for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
-	save_vtk(OUTPUT_PATH + cycle + f"/primal_solution{i:05}.vtk", \
-            {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]) \
-            , "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=list_coordinates_t[i][0])
+    save_vtk(OUTPUT_PATH + cycle + f"/primal_solution{i:05}.vtk",
+             {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
+
+for i, projected_reduced_dual_solution in enumerate(projected_reduced_dual_solutions):
+    save_vtk(OUTPUT_PATH + cycle + f"/dual_solution{i:05}.vtk",
+             {"displacement": dof_matrix.dot(projected_reduced_dual_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
+
+    # save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk",
 # 	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), \
 #             "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
-
+error_primal_displacement = []
+error_dual_displacement = []
+error_primal_velo = []
+error_dual_velo = []
+for i in range(n_slabs+1):
+    if np.linalg.norm(primal_solutions[i][n_dofs["space"]:]) != 0.0 and np.linalg.norm(primal_solutions[i][:n_dofs["space"]]) != 0.0:
+        error_primal_displacement.append(np.linalg.norm(primal_solutions[i][:n_dofs["space"]] - projected_reduced_solutions[i][:n_dofs["space"]])/ np.linalg.norm(primal_solutions[i][:n_dofs["space"]]) )
+        error_primal_velo.append(np.linalg.norm(primal_solutions[i][n_dofs["space"]:] - projected_reduced_solutions[i][n_dofs["space"]:])/ np.linalg.norm(primal_solutions[i][n_dofs["space"]:]) )
+    else:
+        error_primal_displacement.append(0)
+        error_primal_velo.append(0)
+    if np.linalg.norm(dual_solutions[i][n_dofs["space"]:]) != 0.0 and np.linalg.norm(dual_solutions[i][:n_dofs["space"]]) != 0.0:
+        error_dual_displacement.append(np.linalg.norm(dual_solutions[i][:n_dofs["space"]] - projected_reduced_dual_solutions[i][:n_dofs["space"]])/ np.linalg.norm(projected_reduced_dual_solutions[i][:n_dofs["space"]]) )
+        error_dual_velo.append(np.linalg.norm(dual_solutions[i][n_dofs["space"]:] - projected_reduced_dual_solutions[i][n_dofs["space"]:])/np.linalg.norm(dual_solutions[i][n_dofs["space"]:]) )
+    else:
+        error_dual_displacement.append(0)
+        error_dual_velo.append(0)
 # %%
+
+
+time_step_size = 40.0 / (n_dofs["time"] / 2)
+
 # plot sigs
 plt.rc('text', usetex=True)
 # plt.rcParams["figure.figsize"] = (10,2)
 plt.plot(np.arange(0, pod_basis["displacement"].shape[1]),
-          singular_values["displacement"], label="displacement")
+         singular_values["displacement"], label="displacement")
 plt.plot(np.arange(0, pod_basis["velocity"].shape[1]),
-          singular_values["velocity"], label="velocity")
+         singular_values["velocity"], label="velocity")
 plt.plot(np.arange(0, pod_basis_dual["displacement"].shape[1]),
-          singular_values_dual["displacement"], label="displacement_dual")
+         singular_values_dual["displacement"], label="displacement_dual")
 plt.plot(np.arange(0, pod_basis_dual["velocity"].shape[1]),
-          singular_values_dual["velocity"], label="velocity_dual")
+         singular_values_dual["velocity"], label="velocity_dual")
 plt.grid()
 plt.yscale('log')
 plt.legend()
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.show()
+
+
+# plot norm of displace,mnet
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs+1),
+         error_primal_displacement, label="primal")
+plt.plot(np.arange(0, n_slabs+1),
+         error_dual_displacement, label="dual")
+# plt.yscale('log')
+plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.show()
+
+# plot norm of velocity
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs+1),
+         error_primal_velo, label="primal")
+plt.plot(np.arange(0, n_slabs+1),
+         error_dual_velo, label="dual")
+# plt.yscale('log')
+plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.show()
+
+
+# plot temporal evolution of cost funtiponal
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_h_t, color='r', label="$u_h$")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_r_t, '--', c='#1f77b4', label="$u_N$")
+plt.grid()
+plt.legend()
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
+plt.xlim([0, n_slabs*time_step_size])
+#plt.title("temporal evaluation of cost funtional")
+
+plt.show()
+
+
+# plot temporal evolution of cost funtiponal
+plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+#          temporal_interval_error, c='#1f77b4', label="estimate")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+         J_h_t-J_r_t, color='r', label="error")
+plt.grid()
+plt.legend()
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$error$")
+plt.xlim([0, n_slabs*time_step_size])
+
 plt.show()
