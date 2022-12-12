@@ -16,14 +16,14 @@ INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
-cycle = "cycle=4"
+cycle = "cycle=5"
 SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
 # SAVE_PATH = cycle + "/output_ROM/"
 
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
-ENERGY_PRIMAL = 0.9999
-ENERGY_DUAL = 0.999999
+ENERGY_PRIMAL = 0.999999
+ENERGY_DUAL = 0.99999999
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
@@ -238,7 +238,7 @@ temporal_interval_error_incidactor = []
 tol = 5e-4/(n_slabs)
 tol_rel = 1e-2
 tol_dual = 5e-1
-forwardsteps = 5
+forwardsteps = 20
 
 # print("tol =     " + str(tol))
 print("tol_rel       = " + str(tol_rel))
@@ -367,7 +367,7 @@ for i in range(n_slabs):
         tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
     # temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
     temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[i], tmp))
-    temporal_interval_error_relative.append(temporal_interval_error[-1]/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]))
+    temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]))
     temporal_interval_error_incidactor.append(0)
     # or  np.abs(temporal_interval_error[-1]/temporal_interval_error[i-1]):
     extime_error += time.time() - start_time
@@ -471,17 +471,19 @@ for i in range(n_slabs):
         # if np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
         # if np.abs(np.dot(projected_reduced_dual_solutions[-1], tmp))/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
         #     print('Error correction failed')
-        
-    reduced_solutions_old = reduced_solutions
     extime_update += time.time() - start_time
+
+    reduced_solutions_old = reduced_solutions
+    
+    
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
-print("FOM time:        " + str(execution_time_FOM))
-print("ROM time:        " + str(execution_time_ROM))
-print("speedup:         " + str(execution_time_FOM/execution_time_ROM))
-print("Size ROM:        " + str(pod_basis.shape[1]))
-print("Size ROM - dual: " + str(pod_basis_dual.shape[1]))
-print("FOM solves:      " + str(np.sum(temporal_interval_error_incidactor)
+print("FOM time:         " + str(execution_time_FOM))
+print("ROM time:         " + str(execution_time_ROM))
+print("speedup: act/max: " + str(execution_time_FOM/execution_time_ROM) + " / " + str(len(temporal_interval_error_incidactor)/(2*np.sum(temporal_interval_error_incidactor))))
+print("Size ROM:         " + str(pod_basis.shape[1]))
+print("Size ROM - dual:  " + str(pod_basis_dual.shape[1]))
+print("FOM solves:       " + str(np.sum(temporal_interval_error_incidactor)
                            ) + " / " + str(len(temporal_interval_error_incidactor)))
 print(" ")
 print("ROM Solve time:      " + str(extime_solve))
@@ -524,16 +526,18 @@ J_r_t = J_r_t_before_enrichement
 
 true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
 esti_tol = np.abs(1.*np.array(temporal_interval_error).reshape(-1,1)/(J_r_t_before_enrichement+np.array(temporal_interval_error).reshape(-1,1))) > tol_rel
+
 #esti_tol = np.abs(np.array(temporal_interval_error).reshape(-1,1)/J_h_t) > tol_rel
 
 from sklearn.metrics import confusion_matrix
 confusion_matrix = confusion_matrix(true_tol.astype(int), esti_tol.astype(int))
 eltl, egtl, eltg, egtg = confusion_matrix.ravel()
 # n_slabs=100
-print(f"(error > tol & esti > tol): {egtg} ({round(100 * egtg / n_slabs,1)} %)")
-print(f"(error > tol & esti < tol): {eltg} ({round(100 * eltg / n_slabs,1)} %)")
-print(f"(error < tol & esti > tol): {egtl} ({round(100 * egtl / n_slabs,1)} %)")
-print(f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / n_slabs,1)} %)")
+
+print(f"(error > tol & esti < tol): {eltg} ({round(100 * eltg / n_slabs,1)} %)  (very bad)")
+print(f"(error < tol & esti > tol): {egtl} ({round(100 * egtl / n_slabs,1)} %)  (bad)")
+print(f"(error > tol & esti > tol): {egtg} ({round(100 * egtg / n_slabs,1)} %)  (good)")
+print(f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / n_slabs,1)} %)  (good)")
 
 
 

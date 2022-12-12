@@ -3,6 +3,8 @@ import scipy.sparse
 import scipy.sparse.linalg
 import scipy.linalg
 import time
+import multiprocessing
+
 
 def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
     bunch_size = 2
@@ -39,7 +41,8 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
             K = np.hstack((S0, MR_p))
 
             # (np.linalg.norm(np.matmul(Q_q.T, Q_q) -np.eye(np.shape(Q_q)[1])) >= 1e-14):
-            if (True):
+            # if (True):
+            if (np.inner(Q_q[:,0],Q_q[:,-1]) >= 1e-10):
                 Q_q, R_q = scipy.linalg.qr(Q_q, mode='economic')
                 K = np.matmul(R_q, K)
 
@@ -148,9 +151,9 @@ def ROM_update(
     # print(f"Red JM -bw:   {time.time()-start_time2_2}")
     extime_matrix = time.time() - start_time
     
-    # print("fom:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
-    # print("iPOD:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
-    # print("mat:   " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
+    # print("fom - prim:  " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
+    # print("iPOD - prim: " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
+    # print("mat - prim:  " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
     # return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
     return pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
 
@@ -209,9 +212,20 @@ def ROM_update_dual(
     # space_time_pod_basis = scipy.sparse.block_diag(
     #     [pod_basis] * time_dofs_per_time_interval)
     
-    
     reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
     reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
+    
+    
+    # pool = multiprocessing.Pool(4)
+    # processes = []
+    # processes.append(pool.apply_async(reduce_matrix, args=(matrix_no_bc,pod_basis,pod_basis,)))
+    # processes.append(pool.apply_async(reduce_matrix, args=(jump_matrix_no_bc,pod_basis,pod_basis,)))
+
+    # result = [p.get() for p in processes]
+    
+    # reduced_system_matrix   = result[0] #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
+    # reduced_jump_matrix  = result[1]  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
+
     # start_time1 = time.time()
     # reduced_system_matrix = space_time_pod_basis.T.dot(
     #     matrix_no_bc.dot(space_time_pod_basis))
@@ -241,11 +255,16 @@ def ROM_update_dual(
     # print(f"Red JM -bw:   {time.time()-start_time2_2}")
     extime_matrix = time.time() - start_time
     
-    # print("fom:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
-    # print("iPOD:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
-    # print("mat:   " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
+    # print("fom - dual:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
+    # print("iPOD - dual:  " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
+    # print("mat- dual:    " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
+    # print(" ")
     # return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
     return pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
+
+
+def reduction(pod_basis_left,matrix,pod_basis_right):
+    return pod_basis_left.T.dot(matrix.dot(pod_basis_right))
 
 
 def reduce_matrix(matrix, pod_basis_left, pod_basis_right):
@@ -259,11 +278,31 @@ def reduce_matrix(matrix, pod_basis_left, pod_basis_right):
     # size_v_right = pod_basis_right["velocity"].shape[1]
     
     reduced_matrix = np.zeros([n_u_dofs_left*2,n_u_dofs_right*2])
-    reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
     
+    
+    reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = reduction(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right) #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
+    reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = reduction(pod_basis_left,matrix[n_h_dofs:,:n_h_dofs],pod_basis_right)  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
+    reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = reduction(pod_basis_left,matrix[:n_h_dofs,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
+    reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = reduction(pod_basis_left,matrix[n_h_dofs:,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
+    
+        
+    # pool = multiprocessing.Pool(4)
+    # processes = []
+    # processes.append(pool.apply_async(reduction, args=(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right,)))
+    # processes.append(pool.apply_async(reduction, args=(pod_basis_left,matrix[n_h_dofs:,:n_h_dofs],pod_basis_right,)))
+    # processes.append(pool.apply_async(reduction, args=(pod_basis_left,matrix[:n_h_dofs,n_h_dofs:],pod_basis_right,)))
+    # processes.append(pool.apply_async(reduction, args=(pod_basis_left,matrix[n_h_dofs:,n_h_dofs:],pod_basis_right,)))
+
+    # result = [p.get() for p in processes]
+    
+    # reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = result[0] #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
+    # reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = result[1]  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
+    # reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = result[2] # pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
+    # reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = result[3] # pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
+
+    # print(type(result[0]))
+    # with Pool(5) as p:
+    #     reduced_matrix[n_u_dofs_left:, n_u_dofs_right:] = p.map(reduction,[args=(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right)])
     # reduced_matrix[:size_u,:size_u_right] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,:n_dofs].dot(pod_basis_right["displacement"]))
     # reduced_matrix[size_u:,size_u_right:] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,n_dofs:].dot(pod_basis_right["velocity"]))
     # reduced_matrix[:size_u,size_u_right:] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,n_dofs:].dot(pod_basis_right["velocity"]))
