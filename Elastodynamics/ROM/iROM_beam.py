@@ -22,8 +22,7 @@ SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
 ENERGY_PRIMAL_DISPLACEMENT = 0.99999
 ENERGY_PRIMAL_VELOCITY = 0.999999
-ENERGY_DUAL = 0.99999999
-
+ENERGY_DUAL = 0.999999
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
@@ -49,15 +48,26 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
             lines.append(str(cycle))
         if (time != None):
             lines.append("TIME 1 1 double")
-            lines.append(str(time))
+            lines.append(str((time)))
 
     lines += grid
 
     for key, value in solution.items():
-        lines.append(f"SCALARS {key} double 1")
+        lines.append(f"SCALARS {key}_x double 1")
         lines.append("LOOKUP_TABLE default")
-        lines.append(" ".join(np.round(value, decimals=7).astype(
+        lines.append(" ".join(np.round(value[0::3], decimals=7).astype(
             np.double).astype(str)) + " ")
+        
+        lines.append(f"SCALARS {key}_y double 1")
+        lines.append("LOOKUP_TABLE default")
+        lines.append(" ".join(np.round(value[1::3], decimals=7).astype(
+            np.double).astype(str)) + " ")
+        
+        lines.append(f"SCALARS {key}_z double 1")
+        lines.append("LOOKUP_TABLE default")
+        lines.append(" ".join(np.round(value[2::3], decimals=7).astype(
+            np.double).astype(str)) + " ")
+
 
     with open(file_name, "w") as file:
         file.write("\n".join(lines))
@@ -98,12 +108,30 @@ for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle)
                 if "dual" not in f and "rhs_no_bc" in f]):
     rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
 
+boundary_ids = np.loadtxt(OUTPUT_PATH + cycle +
+                          "/boundary_id.txt").astype(int)
+
+# %% applying BC to primal matrix
+primal_matrix = matrix_no_bc.tocsr()
+primal_system_rhs  = []
+for row in boundary_ids:
+    for col in primal_matrix.getrow(row).nonzero()[1]:
+        primal_matrix[row, col] = 1. if row == col else 0.
+    
+    for rhs_no_bc_sample in rhs_no_bc:
+        primal_system_rhs.append(rhs_no_bc_sample)
+        primal_system_rhs[-1][row] = 0.0
+        # for in_bc in range(len(rhs_no_bc)):
+        #     if row == col: 
+        #         rhs_no_bc[in_bc][col] = 1. 
+
 """
 dual_rhs_no_bc = []
 for f in sorted([f for f in os.listdir(
         OUTPUT_PATH + cycle) if "dual_rhs_no_bc" in f]):
     dual_rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
 """
+
 
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 # print(initial_solution)
@@ -152,6 +180,15 @@ C = matrix_no_bc[2*n_dofs["space"]:, :2*n_dofs["space"]]
 # need this for primal and dual problem
 D = matrix_no_bc[2*n_dofs["space"]:, 2*n_dofs["space"]:]
 
+
+A_wbc = primal_matrix[:2*n_dofs["space"], :2*n_dofs["space"]]
+# need this for   dual problem
+B_wbc = primal_matrix[:2*n_dofs["space"], 2*n_dofs["space"]:]
+# need this for primal and dual problem
+C_wbc = primal_matrix[2*n_dofs["space"]:, :2*n_dofs["space"]]
+# need this for primal and dual problem
+D_wbc = primal_matrix[2*n_dofs["space"]:, 2*n_dofs["space"]:]
+
 print(f"C.shape = {C.shape}")
 print(f"D.shape = {D.shape}")
 print(f"matrix_no_bc.shape = {matrix_no_bc.shape}")
@@ -165,10 +202,10 @@ last_primal_solution[:] = initial_solution[:]
 primal_solutions = [initial_solution[:]]
 for i in range(n_slabs):
     # creating primal rhs and applying BC to it
-    primal_rhs = rhs_no_bc[i][2*n_dofs["space"]:].copy() - C.dot(last_primal_solution)
+    primal_rhs = primal_system_rhs[i][2*n_dofs["space"]:].copy() - C_wbc.dot(last_primal_solution)
 
     primal_solutions.append(
-        scipy.sparse.linalg.spsolve(D, primal_rhs))
+        scipy.sparse.linalg.spsolve(D_wbc, primal_rhs))
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
@@ -211,6 +248,7 @@ for i in list(range(n_slabs))[::-1]:
     # creating dual rhs and applying BC to it
     # functional_matrix_no_bc.dot(primal_solutions[i])
     dual_rhs = J_2.dot(primal_solutions[i])
+    print(max(dual_rhs))
     if i > 0:
         dual_rhs += J_1.dot(primal_solutions[i-1])
     else:
@@ -254,7 +292,7 @@ J["u_h"] = np.sum(J_h_t)
 # %%
 # check reducablility
 
-bunch_size = 1 #len(primal_solutions)  # 1
+bunch_size = 2 #len(primal_solutions)  # 1
 
 total_energy = {"displacement": 0, "velocity": 0}
 pod_basis = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
@@ -279,7 +317,7 @@ singular_values_dual = {"displacement": np.empty(
 # bunch_displacement = np.empty([0, 0])
 # singular_values_displacement = np.empty([0, 0])
 
-for i,primal_solution in enumerate(primal_solutions):  # [0:1]:
+for primal_solution in primal_solutions: #[0:1]:
     # if i > len(primal_solutions)/3:
     #     break
     pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
@@ -293,12 +331,11 @@ for i,primal_solution in enumerate(primal_solutions):  # [0:1]:
     pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] = iPOD(pod_basis["velocity"],
                                                                                                            bunch["velocity"],
                                                                                                            singular_values["velocity"],
-                                                                                                           primal_solution[
-                                                                                                               n_dofs["space"]:2 * n_dofs["space"]],
+                                                                                                           primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
                                                                                                            total_energy["velocity"],
                                                                                                            ENERGY_PRIMAL_VELOCITY,
                                                                                                            bunch_size)
-for dual_solution in dual_solutions:  # [0:1]:
+for dual_solution in dual_solutions: #[0:1]:
     pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] = iPOD(pod_basis_dual["displacement"],
                                                                                                                                                bunch_dual[
         "displacement"],
@@ -344,8 +381,8 @@ D_reduced = reduce_matrix(D, pod_basis, pod_basis)
 reduced_solutions = []
 reduced_solution_old = reduce_vector(initial_solution[:], pod_basis)
 
-print(np.linalg.norm(initial_solution[:] - project_vector(
-    reduce_vector(initial_solution[:], pod_basis), pod_basis)))
+# print(np.linalg.norm(initial_solution[:] - project_vector(
+#     reduce_vector(initial_solution[:], pod_basis), pod_basis)))
 
 reduced_dual_solutions = []
 reduced_dual_solution_old = reduce_vector(dual_solutions[0], pod_basis_dual)
@@ -360,12 +397,12 @@ projected_reduced_solutions_before_enrichment = []
 projected_reduced_dual_solutions = [project_vector(
     reduce_vector(dual_solutions[0], pod_basis_dual), pod_basis_dual)]
 
-print(np.linalg.norm(initial_solution[:] - project_vector(
-    reduce_vector(initial_solution[:], pod_basis), pod_basis)))
-print(np.linalg.norm(
-    projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
-print(np.linalg.norm(
-    projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
+# print(np.linalg.norm(initial_solution[:] - project_vector(
+#     reduce_vector(initial_solution[:], pod_basis), pod_basis)))
+# print(np.linalg.norm(
+#     projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
+# print(np.linalg.norm(
+#     projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
 
 dual_residual = []
 dual_residual.append(0)
@@ -443,16 +480,16 @@ for i in range(n_slabs):
 
     reduced_solution_old = reduced_solution
 
-    print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
-                         [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
-    print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
-                         [n_dofs["space"]:])/np.linalg.norm(primal_solutions[i+1][n_dofs["space"]:]))
-    if np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]) != 0.0 and np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]) != 0.0:
-        print(np.linalg.norm(projected_reduced_dual_solutions[i+1][:n_dofs["space"]]-dual_solutions[i+1]
-                             [:n_dofs["space"]])/np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]))
-        print(np.linalg.norm(projected_reduced_dual_solutions[i+1][n_dofs["space"]:]-dual_solutions[i+1]
-                             [n_dofs["space"]:])/np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]))
-    print(" ")
+    # print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
+    #                      [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
+    # print(np.linalg.norm(projected_reduced_solutions[i+1][n_dofs["space"]:]-primal_solutions[i+1]
+    #                      [n_dofs["space"]:])/np.linalg.norm(primal_solutions[i+1][n_dofs["space"]:]))
+    # if np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]) != 0.0 and np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]) != 0.0:
+    #     print(np.linalg.norm(projected_reduced_dual_solutions[i+1][:n_dofs["space"]]-dual_solutions[i+1]
+    #                          [:n_dofs["space"]])/np.linalg.norm(dual_solutions[i+1][:n_dofs["space"]]))
+    #     print(np.linalg.norm(projected_reduced_dual_solutions[i+1][n_dofs["space"]:]-dual_solutions[i+1]
+    #                          [n_dofs["space"]:])/np.linalg.norm(dual_solutions[i+1][n_dofs["space"]:]))
+    # print(" ")
 
 
 # %% postprocessing

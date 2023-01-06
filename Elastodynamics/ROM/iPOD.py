@@ -267,22 +267,22 @@ def reduction(pod_basis_left,matrix,pod_basis_right):
 
 
 def reduce_matrix(matrix, pod_basis_left, pod_basis_right):
-    n_h_dofs = pod_basis_left.shape[0]
-    n_u_dofs_left = pod_basis_left.shape[1]
-    n_u_dofs_right = pod_basis_right.shape[1]
-    # n_dofs = pod_basis_left["displacement"].shape[0]
-    # size_u = pod_basis_left["displacement"].shape[1]
-    # size_v = pod_basis_left["velocity"].shape[1]
-    # size_u_right = pod_basis_right["displacement"].shape[1]
-    # size_v_right = pod_basis_right["velocity"].shape[1]
+    # n_h_dofs = pod_basis_left.shape[0]
+    # n_u_dofs_left = pod_basis_left.shape[1]
+    # n_u_dofs_right = pod_basis_right.shape[1]
+    n_dofs = pod_basis_left["displacement"].shape[0]
+    size_u = pod_basis_left["displacement"].shape[1]
+    size_v = pod_basis_left["velocity"].shape[1]
+    size_u_right = pod_basis_right["displacement"].shape[1]
+    size_v_right = pod_basis_right["velocity"].shape[1]
     
-    reduced_matrix = np.zeros([n_u_dofs_left*2,n_u_dofs_right*2])
+    reduced_matrix = np.zeros([size_u + size_v, size_u_right + size_v_right])
     
     
-    reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = reduction(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right) #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = reduction(pod_basis_left,matrix[n_h_dofs:,:n_h_dofs],pod_basis_right)  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
-    reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = reduction(pod_basis_left,matrix[:n_h_dofs,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
-    reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = reduction(pod_basis_left,matrix[n_h_dofs:,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
+    # reduced_matrix[:n_u_dofs_left, :n_u_dofs_right]   = reduction(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right) #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
+    # reduced_matrix[n_u_dofs_left:,:n_u_dofs_right]    = reduction(pod_basis_left,matrix[n_h_dofs:,:n_h_dofs],pod_basis_right)  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
+    # reduced_matrix[:n_u_dofs_left,  n_u_dofs_right:]  = reduction(pod_basis_left,matrix[:n_h_dofs,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[:n_h_dofs,n_h_dofs:].dot(pod_basis_right))
+    # reduced_matrix[n_u_dofs_left:, n_u_dofs_right:]   = reduction(pod_basis_left,matrix[n_h_dofs:,n_h_dofs:],pod_basis_right) # pod_basis_left.T.dot(matrix[n_h_dofs:,n_h_dofs:].dot(pod_basis_right))
     
         
     # pool = multiprocessing.Pool(4)
@@ -302,33 +302,40 @@ def reduce_matrix(matrix, pod_basis_left, pod_basis_right):
     # print(type(result[0]))
     # with Pool(5) as p:
     #     reduced_matrix[n_u_dofs_left:, n_u_dofs_right:] = p.map(reduction,[args=(pod_basis_left,matrix[:n_h_dofs,:n_h_dofs],pod_basis_right)])
-    # reduced_matrix[:size_u,:size_u_right] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,:n_dofs].dot(pod_basis_right["displacement"]))
-    # reduced_matrix[size_u:,size_u_right:] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,n_dofs:].dot(pod_basis_right["velocity"]))
-    # reduced_matrix[:size_u,size_u_right:] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,n_dofs:].dot(pod_basis_right["velocity"]))
-    # reduced_matrix[size_u:,:size_u_right] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,:n_dofs].dot(pod_basis_right["displacement"]))
+    
+    
+    reduced_matrix[:size_u,:size_u_right] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,:n_dofs].dot(pod_basis_right["displacement"]))
+    reduced_matrix[size_u:,size_u_right:] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,n_dofs:].dot(pod_basis_right["velocity"]))
+    reduced_matrix[:size_u,size_u_right:] = pod_basis_left["displacement"].T.dot(matrix[:n_dofs,n_dofs:].dot(pod_basis_right["velocity"]))
+    reduced_matrix[size_u:,:size_u_right] = pod_basis_left["velocity"].T.dot(matrix[n_dofs:,:n_dofs].dot(pod_basis_right["displacement"]))
     
     return reduced_matrix
 
 def reduce_vector(vector, pod_basis):    
-        
-    n_h_dofs = pod_basis.shape[0]
-    n_u_dofs = pod_basis.shape[1]
     
-    reduced_vector = np.zeros([2*n_u_dofs, ])
+    n_dofs = pod_basis["displacement"].shape[0]
+    size_u = pod_basis["displacement"].shape[1]
+    size_v = pod_basis["velocity"].shape[1]
     
-    reduced_vector[:n_u_dofs] = pod_basis.T.dot(vector[:n_h_dofs])
-    reduced_vector[n_u_dofs:] = pod_basis.T.dot(vector[n_h_dofs:])
+    reduced_vector = np.zeros([size_u + size_v, ])
+    
+    reduced_vector[:size_u] = pod_basis["displacement"].T.dot(vector[:n_dofs])
+    reduced_vector[size_u:] = pod_basis["velocity"].T.dot(vector[n_dofs:])
     
     return reduced_vector
     
 def project_vector(reduced_vector, pod_basis): 
-      
-    n_h_dofs = pod_basis.shape[0]
-    n_u_dofs = pod_basis.shape[1]
-    vector = np.zeros([2*n_h_dofs,])
+          
+    n_dofs_u = pod_basis["displacement"].shape[0]
+    n_dofs_v = pod_basis["velocity"].shape[0]
+    
+    size_u = pod_basis["displacement"].shape[1]
+    size_v = pod_basis["velocity"].shape[1]
+    
+    vector = np.zeros([n_dofs_u + n_dofs_v,])
 
-    vector[:n_h_dofs] = pod_basis.dot(reduced_vector[:n_u_dofs])
-    vector[n_h_dofs:] = pod_basis.dot(reduced_vector[n_u_dofs:])
+    vector[:n_dofs_u] = pod_basis["displacement"].dot(reduced_vector[:size_u])
+    vector[n_dofs_u:] = pod_basis["velocity"].dot(reduced_vector[size_u:])
     
     return vector    
     

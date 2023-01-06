@@ -298,7 +298,7 @@ private:
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
 	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab, bool assemble_matrix);
 	void apply_initial_condition();
-	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, bool first_slab);
+	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab);
 	void solve(bool invert);
 	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number);
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
@@ -789,7 +789,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 //	std::cout << "BEFORE IC - system_rhs: " << system_rhs.l2_norm() << std::endl;
 	apply_initial_condition();
 //	std::cout << "AFTER IC - system_rhs: " << system_rhs.l2_norm() << std::endl;
-	apply_boundary_conditions(slab, first_slab);
+	apply_boundary_conditions(slab, cycle,first_slab);
 //	std::cout << "AFTER BC - system_rhs: " << system_rhs.l2_norm() << std::endl;
 }
 
@@ -811,13 +811,16 @@ void SpaceTime<dim>::apply_initial_condition() {
 }	
 
 template<int dim>
-void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, bool first_slab) {
+void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab) {
    // apply the spatial Dirichlet boundary conditions at each temporal DoF
    Solution<dim> solution_func; 
    
    FEValues<1> time_fe_values(slab->time_fe, Quadrature<1>(slab->time_fe.get_unit_support_points()), update_quadrature_points);
    std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());
    
+   // list of constrained space-time DoF indices
+   std::vector<types::global_dof_index> boundary_ids;
+
    for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
     time_fe_values.reinit(time_cell);
     time_cell->get_dof_indices(time_local_dof_indices);
@@ -844,10 +847,21 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, bool
 	    p->value() = 0.;
 	  system_matrix.set(id, id, 1.);
 	  system_rhs(id) = entry.second;
+	  boundary_ids.push_back(id);
 	}
       }
     }
     
+//   "../Data/3D/" + problem_name + "/cycle=" + std::to_string(cycle) + "/";
+
+   if (first_slab)
+   {
+     std::ofstream boundary_id_out("../Data/3D/" + problem_name + "/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
+     for (unsigned int i = 0; i < boundary_ids.size()-1; ++i)
+	boundary_id_out << boundary_ids[i] << " ";
+     boundary_id_out << boundary_ids[boundary_ids.size()-1];
+   }
+
     // TODO: fix boundary id output
     //if (first_slab)
     //{
