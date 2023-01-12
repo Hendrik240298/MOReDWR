@@ -9,12 +9,13 @@ import os
 import time
 import sys
 from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
-import imageio
+#import imageio
 
 PLOTTING = False
 INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
+MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
 cycle = "cycle=5"
 SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
@@ -22,8 +23,8 @@ SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
 
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
-ENERGY_PRIMAL = 0.999999
-ENERGY_DUAL = 0.99999999
+ENERGY_PRIMAL = 0.99999999
+ENERGY_DUAL = 0.99999999999999999
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
@@ -238,7 +239,7 @@ temporal_interval_error_incidactor = []
 tol = 5e-4/(n_slabs)
 tol_rel = 1e-2
 tol_dual = 5e-1
-forwardsteps = 20
+forwardsteps = 10
 
 # print("tol =     " + str(tol))
 print("tol_rel       = " + str(tol_rel))
@@ -507,13 +508,18 @@ J_r_t_before_enrichement = np.empty([n_slabs, 1])
 for i in range(n_slabs):
     J_r_t[i] = np.dot(projected_reduced_solutions[i], mass_matrix_no_bc.dot(projected_reduced_solutions[i]))
     J_r_t_before_enrichement[i] = np.dot(projected_reduced_solutions_before_enrichment[i], mass_matrix_no_bc.dot(projected_reduced_solutions_before_enrichment[i]))
-    
+    print(np.mean(projected_reduced_solutions[i] -projected_reduced_solutions_before_enrichment[i]))
 J["u_r"] = np.sum(J_r_t) 
 
 print("J(u_h) =", J["u_h"])
 # TODO: in the future compare J(u_r) for different values of rprojected_reduced_dual_solutions
 print("J(u_r) =", J["u_r"])
 print(" ")
+
+# %% real error in cost functional
+real_temporal_interval_error_relative = []
+for i in range(1,n_slabs,1):
+    real_temporal_interval_error_relative.append(np.abs((J_h_t[i]-J_r_t_before_enrichement[i])/J_h_t[i]))
 
 # %% error estimation
 true_error = J['u_h'] - J['u_r']
@@ -574,7 +580,9 @@ xx, yy = [], []
 xx_FOM, yy_FOM = [], []
 cc = []
 # for i, error in enumerate(temporal_interval_error):
-for i, error in enumerate(temporal_interval_error_relative):
+# for i, error in enumerate(temporal_interval_error_relative):
+for i, error in enumerate(real_temporal_interval_error_relative):
+
     if temporal_interval_error_incidactor[i] == 0:
         xx += [i * time_step_size,
                (i + 1) * time_step_size, (i + 1) * time_step_size]
@@ -594,13 +602,17 @@ for i, error in enumerate(temporal_interval_error_relative):
 # plot temporal error
 plt.rc('text', usetex=True)
 # plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(xx, yy, label="$u_N$")
-plt.plot(xx_FOM, yy_FOM, color='r', label="$u_h$")
+plt.plot(xx, yy, label="ROM solves")
+plt.plot(xx_FOM, yy_FOM, color='r', label="FOM solves")
+plt.plot([0,10],[1e-2,1e-2], '--', color='green') #, label="1\% relative error")
+plt.text(7.5, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
 plt.grid()
-plt.legend()
+plt.legend( fontsize=13)
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
+plt.xlabel('$t \; [$s$]$',fontsize=15)
+# plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
+# plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{I_m}$",fontsize=16)
+plt.ylabel("$^{|J(u^{FOM}) - J(u^{ROM})|}/_{|J(u^{FOM})|}$",fontsize=16)
 plt.yscale("log")
 plt.xlim([0, n_slabs*time_step_size])
 #plt.title("temporal evaluation of cost funtional")

@@ -14,6 +14,7 @@ PLOTTING = True
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 CASE = ""  # "rotating_circle"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Wave/"
+MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Wave/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/BangerthGeigerRannacher/"
 cycle = "cycle=3"
 SAVE_PATH = cycle + "/output_ROM/"

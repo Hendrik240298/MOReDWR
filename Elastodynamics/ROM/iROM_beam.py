@@ -24,6 +24,8 @@ ENERGY_PRIMAL_DISPLACEMENT = 0.99999
 ENERGY_PRIMAL_VELOCITY = 0.999999
 ENERGY_DUAL = 0.999999
 
+CG_ORDER = 1
+
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
 if not os.path.exists(SAVE_PATH + "movie/"):    
@@ -134,15 +136,6 @@ for f in sorted([f for f in os.listdir(
 
 
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
-# print(initial_solution)
-# print(max(abs(initial_solution)))
-
-# NO boundary_ids, since we have only homogeneous Neumann boundary conditions for the wave equation which represent reflecting boundaries
-# %% applying BC to primal matrix
-# primal_matrix = matrix_no_bc.tocsr()
-# for row in range(int(matrix_no_bc.shape[0]/2)):
-#    for col in primal_matrix.getrow(row).nonzero()[1]:
-#        primal_matrix[row, col] = 1. if row == col else 0.
 
 # %% coordinates
 coordinates_x = np.loadtxt(OUTPUT_PATH + cycle + "/coordinates_x.txt")
@@ -248,7 +241,6 @@ for i in list(range(n_slabs))[::-1]:
     # creating dual rhs and applying BC to it
     # functional_matrix_no_bc.dot(primal_solutions[i])
     dual_rhs = J_2.dot(primal_solutions[i])
-    print(max(dual_rhs))
     if i > 0:
         dual_rhs += J_1.dot(primal_solutions[i-1])
     else:
@@ -292,7 +284,7 @@ J["u_h"] = np.sum(J_h_t)
 # %%
 # check reducablility
 
-bunch_size = 2 #len(primal_solutions)  # 1
+bunch_size = 1 #len(primal_solutions)  # 1
 
 total_energy = {"displacement": 0, "velocity": 0}
 pod_basis = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
@@ -317,9 +309,7 @@ singular_values_dual = {"displacement": np.empty(
 # bunch_displacement = np.empty([0, 0])
 # singular_values_displacement = np.empty([0, 0])
 
-for primal_solution in primal_solutions: #[0:1]:
-    # if i > len(primal_solutions)/3:
-    #     break
+for primal_solution in primal_solutions[0:1]:
     pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
         = iPOD(pod_basis["displacement"],
                bunch["displacement"],
@@ -327,40 +317,34 @@ for primal_solution in primal_solutions: #[0:1]:
                primal_solution[0:n_dofs["space"]],
                total_energy["displacement"],
                ENERGY_PRIMAL_DISPLACEMENT,
+               bunch_size)      
+    pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] \
+        = iPOD(pod_basis["velocity"],
+               bunch["velocity"],
+               singular_values["velocity"],
+               primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+               total_energy["velocity"],
+               ENERGY_PRIMAL_VELOCITY,
                bunch_size)
-    pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] = iPOD(pod_basis["velocity"],
-                                                                                                           bunch["velocity"],
-                                                                                                           singular_values["velocity"],
-                                                                                                           primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
-                                                                                                           total_energy["velocity"],
-                                                                                                           ENERGY_PRIMAL_VELOCITY,
-                                                                                                           bunch_size)
-for dual_solution in dual_solutions: #[0:1]:
-    pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] = iPOD(pod_basis_dual["displacement"],
-                                                                                                                                               bunch_dual[
-        "displacement"],
-        singular_values_dual[
-        "displacement"],
-        dual_solution[
-        0:n_dofs["space"]],
-        total_energy_dual[
-        "displacement"],
-        ENERGY_DUAL,
-        bunch_size)
-    pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] = iPOD(pod_basis_dual["velocity"],
-                                                                                                                               bunch_dual[
-        "velocity"],
-        singular_values_dual[
-        "velocity"],
-        dual_solution[
-        n_dofs["space"]:2 * n_dofs["space"]],
-        total_energy_dual[
-        "velocity"],
-        ENERGY_DUAL,
-        bunch_size)
+        
+for dual_solution in dual_solutions[0:1]:
+    pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] \
+        = iPOD(pod_basis_dual["displacement"],
+               bunch_dual["displacement"],
+               singular_values_dual["displacement"],
+               dual_solution[0:n_dofs["space"]],
+               total_energy_dual["displacement"],
+               ENERGY_DUAL,
+               bunch_size)
+    pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] \
+        = iPOD(pod_basis_dual["velocity"],
+               bunch_dual["velocity"],
+               singular_values_dual["velocity"],
+               dual_solution[n_dofs["space"]:2 * n_dofs["space"]],
+               total_energy_dual["velocity"],
+               ENERGY_DUAL,
+               bunch_size)
     
-    
-
 
 print(pod_basis["displacement"].shape[1])
 print(pod_basis["velocity"].shape[1])
@@ -381,28 +365,14 @@ D_reduced = reduce_matrix(D, pod_basis, pod_basis)
 reduced_solutions = []
 reduced_solution_old = reduce_vector(initial_solution[:], pod_basis)
 
-# print(np.linalg.norm(initial_solution[:] - project_vector(
-#     reduce_vector(initial_solution[:], pod_basis), pod_basis)))
-
 reduced_dual_solutions = []
 reduced_dual_solution_old = reduce_vector(dual_solutions[0], pod_basis_dual)
-forward_reduced_dual_solution = np.zeros_like(
-    reduce_vector(dual_solutions[0], pod_basis_dual))
+forward_reduced_dual_solution = np.zeros_like(reduce_vector(dual_solutions[0], pod_basis_dual))
 
-
-projected_reduced_solutions = [project_vector(
-    reduce_vector(initial_solution[:], pod_basis), pod_basis)]
+projected_reduced_solutions = [project_vector(reduce_vector(initial_solution[:], pod_basis), pod_basis)]
 projected_reduced_solutions_before_enrichment = []
 
-projected_reduced_dual_solutions = [project_vector(
-    reduce_vector(dual_solutions[0], pod_basis_dual), pod_basis_dual)]
-
-# print(np.linalg.norm(initial_solution[:] - project_vector(
-#     reduce_vector(initial_solution[:], pod_basis), pod_basis)))
-# print(np.linalg.norm(
-#     projected_reduced_solutions[0][:n_dofs["space"]]-primal_solutions[0][:n_dofs["space"]]))
-# print(np.linalg.norm(
-#     projected_reduced_solutions[0][n_dofs["space"]:]-primal_solutions[0][n_dofs["space"]:]))
+projected_reduced_dual_solutions = [project_vector(reduce_vector(dual_solutions[0], pod_basis_dual), pod_basis_dual)]
 
 dual_residual = []
 dual_residual.append(0)
@@ -433,50 +403,16 @@ for i in range(n_slabs):
         rhs_no_bc[i][2*n_dofs["space"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
     reduced_solution = np.linalg.solve(D_reduced, reduced_rhs)
 
-    projected_reduced_solutions.append(
-        project_vector(reduced_solution, pod_basis))
-
-    forwarded_reduced_solutions = []
-    forwarded_reduced_solutions.append(reduced_solution_old)
-    forwarded_reduced_solutions.append(reduced_solution)
-
-    for forwardstep in range(forwardsteps):
-        if i+forwardstep+1 >= n_slabs:
-            break
-        forwarded_reduced_rhs = reduce_vector(rhs_no_bc[i+forwardstep+1][2*n_dofs["space"]:].copy(
-        ), pod_basis) - C_reduced.dot(forwarded_reduced_solutions[-1])
-        forwarded_reduced_solutions.append(
-            np.linalg.solve(D_reduced, forwarded_reduced_rhs))
-    # forwarded_reduced_solutions.append(space_time_pod_basis.T.dot(primal_solutions[i+forwardstep+1]))
-
-    # reversed forward dual solve
-    forwarded_reduced_dual_solutions = [
-        np.zeros_like(reduced_dual_solution_old)]
-
-    for forwardstep in range(1, len(forwarded_reduced_solutions), 1):
-        # range(len(forwarded_reduced_solutions)-1,0,-1):
-        forwarded_reduced_dual_rhs = J_2_reduced.dot(
-            forwarded_reduced_solutions[-forwardstep]) + J_1_reduced.dot(forwarded_reduced_solutions[-forwardstep-1])
-        forwarded_reduced_dual_rhs -= B_reduced.T.dot(
-            forwarded_reduced_dual_solutions[-1])
-        forwarded_reduced_dual_solutions.append(
-            np.linalg.solve(A_reduced.T, forwarded_reduced_dual_rhs))
-
-    reduced_dual_solution = forwarded_reduced_dual_solutions[-1]
-
-    projected_reduced_dual_solutions.append(
-        project_vector(reduced_dual_solution, pod_basis_dual))
-
-
-    tmp = -D.dot(projected_reduced_solutions[-1]) + rhs_no_bc[i][2*n_dofs["space"]:].copy()
-    # temporal_interval_error.append(np.dot(dual_solutions[i], tmp))
-    temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[-1], tmp))
-    temporal_interval_error_incidactor.append(0)
+    projected_reduced_solutions.append(project_vector(reduced_solution, pod_basis))
     
     # reduced_dual_rhs=J_2_reduced.dot(reduced_solution) + J_1_reduced.dot(reduced_solution_old)
     # reduced_dual_rhs -= B_reduced.T.dot(forward_reduced_dual_solutions[-1])
 
     # reduced_dual_solution=np.linalg.solve(A_reduced.T, reduced_dual_rhs)
+
+
+    # ATTENTION WE HAVE TO SPLIT THE REDUCED SOLUTION SINCE IT CONTAINS NOW MORE THEN ONE TIMESTEP
+
 
     reduced_solution_old = reduced_solution
 
