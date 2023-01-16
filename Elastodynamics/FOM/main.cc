@@ -301,6 +301,8 @@ private:
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab);
 	void solve(bool invert);
 	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number);
+	void compute_functional_values(const unsigned int refinement_cycle, unsigned int slab_number);
+	Tensor<1,dim> compute_normal_stress(Vector<double> space_solution);
 	void process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab);
 	void print_coordinates(std::shared_ptr<Slab> &slab, std::string output_dir, unsigned int slab_number);
 
@@ -1078,6 +1080,104 @@ void SpaceTime<3>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	}
 }
 
+
+template<int dim>
+void SpaceTime<dim>::compute_functional_values(const unsigned int refinement_cycle, unsigned int slab_number)
+{
+	std::string output_dir = "../Data/3D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
+
+	std::vector< std::tuple<double, double> > stress_x_values;
+	std::vector< std::tuple<double, double> > stress_y_values;
+	std::vector< std::tuple<double, double> > stress_z_values;
+
+	unsigned int ii_ordered = 0;
+	for (auto time_point : time_support_points)
+	{
+	  if (slab_number > 0 && ii_ordered == 0)
+	  {
+		ii_ordered++;
+		continue;
+	  }
+
+	  double t_qq = time_point.first;
+	  unsigned int ii = time_point.second;
+
+	  DataOut<3> data_out;
+	  data_out.attach_dof_handler(space_dof_handler);
+
+	  Vector<double> space_solution(space_dof_handler.n_dofs());
+	  for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+		space_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
+
+	  Tensor<1, dim> normal_stress = compute_normal_stress(space_solution);
+	  stress_x_values.push_back(std::make_tuple(t_qq, normal_stress[0]));
+	  stress_y_values.push_back(std::make_tuple(t_qq, normal_stress[1]));
+	  stress_z_values.push_back(std::make_tuple(t_qq, normal_stress[2]));
+	}
+
+	// sort value vectors according to time
+	std::sort(stress_x_values.begin(), stress_x_values.end());
+	std::sort(stress_y_values.begin(), stress_y_values.end());
+	std::sort(stress_z_values.begin(), stress_z_values.end());
+
+	// output the values into log files
+	std::ofstream stress_x_out(output_dir + "stress_x.txt", std::ios_base::app);
+	std::ofstream stress_y_out(output_dir + "stress_y.txt", std::ios_base::app);
+	std::ofstream stress_z_out(output_dir + "stress_z.txt", std::ios_base::app);
+
+	for (auto &item : stress_x_values)
+		stress_x_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+
+	for (auto &item : stress_y_values)
+		stress_y_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+
+	for (auto &item : stress_z_values)
+		stress_z_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+}
+
+template<int dim>
+Tensor<1,dim> SpaceTime<dim>::compute_normal_stress(Vector<double> space_solution)
+{
+	Tensor<1, dim> normal_stress;
+
+	QGauss<dim-1> space_face_quad_formula(space_fe.degree + 2);
+	FEFaceValues<dim> space_fe_face_values(space_fe, space_face_quad_formula,
+						update_values | update_gradients | update_normal_vectors | update_JxW_values | update_quadrature_points);
+
+	const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
+	const unsigned int n_face_q_points = space_face_quad_formula.size();
+
+	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
+	std::vector<std::vector<Tensor<1, dim>>> face_solution_grads(n_face_q_points, std::vector<Tensor<1, dim>>(2*dim));
+
+	Tensor <2,dim> identity;
+	for (unsigned int k=0; k<dim; ++k)
+		identity[k][k] = 1.;
+
+	for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
+		for (const unsigned int space_face : space_cell->face_indices())
+			if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 0)) // face is at hom. Dirichlet boundary
+			{
+				space_fe_face_values.reinit(space_cell, space_face);
+				space_fe_face_values.get_function_gradients(space_solution, face_solution_grads);
+
+				for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
+				{
+					Tensor<2, dim> symm_grad_u;
+					for (unsigned int l = 0; l < dim; l++)
+						for (unsigned int m = 0; m < dim; m++)
+							symm_grad_u[l][m] = 0.5 * (face_solution_grads[q][l][m] + face_solution_grads[q][m][l]);
+
+					const Tensor<2, dim> stress_tensor = 2. * mu * symm_grad_u + lambda * trace(symm_grad_u) * identity;
+
+					normal_stress += stress_tensor * space_fe_face_values.normal_vector(q) * space_fe_face_values.JxW(q);
+				}
+			}
+	}
+
+	return normal_stress;
+}
+
 template<int dim>
 void SpaceTime<dim>::process_solution(std::shared_ptr<Slab> &slab, const unsigned int cycle, bool last_slab) {
 	Solution<dim> solution_func;
@@ -1260,6 +1360,11 @@ void SpaceTime<dim>::run() {
 		for (auto dir : {"../Data/", dim_dir.c_str(), problem_dir.c_str(), output_dir.c_str()})
 		  mkdir(dir, S_IRWXU);
 
+		// remove old logfiles
+		std::remove((output_dir + "stress_x.txt").c_str());
+		std::remove((output_dir + "stress_y.txt").c_str());
+		std::remove((output_dir + "stress_z.txt").c_str());
+
 		// reset values from last refinement cycle
 		n_snapshots = 0;
 		n_active_time_cells = 0;
@@ -1321,6 +1426,9 @@ void SpaceTime<dim>::run() {
 			
 			// output results as SVG or VTK files
 			output_results(slabs[k], cycle, k); 
+
+			// compute normal stress at Dirichlet boundary
+			compute_functional_values(cycle, k);
 
 			// Compute the error to the analytical solution
 			process_solution(slabs[k], cycle, (k == slabs.size()-1));
