@@ -98,21 +98,24 @@ print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
 
-[data, row, column] = np.loadtxt(
-    OUTPUT_PATH + cycle + "/dual_matrix_no_bc.txt")
-functional_matrix_no_bc = scipy.sparse.csr_matrix(
-    (data, (row.astype(int), column.astype(int))))
-
+# %% Reading in rhs
 
 rhs_no_bc = []
 for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle)
                 if "dual" not in f and "rhs_no_bc" in f]):
     rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
 
+dual_rhs_no_bc = []
+for f in sorted([f for f in os.listdir(
+        OUTPUT_PATH + cycle) if "dual_rhs_no_bc" in f]):
+    dual_rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
+
+
+# %% Enforcing BC to primal matrix
+    
 boundary_ids = np.loadtxt(OUTPUT_PATH + cycle +
                           "/boundary_id.txt").astype(int)
 
-# %% Enforcing BC to primal matrix
 primal_matrix = matrix_no_bc.tocsr()
 primal_system_rhs = []
 for row in boundary_ids:
@@ -125,13 +128,17 @@ for row in boundary_ids:
         # for in_bc in range(len(rhs_no_bc)):
         #     if row == col:
         #         rhs_no_bc[in_bc][col] = 1.
+        
+# %% Enforcing BC to dual matrix
+dual_matrix =  matrix_no_bc.tocsr().T
+dual_system_rhs = []
+for row in boundary_ids:
+    for col in dual_matrix.getrow(row).nonzero()[1]:
+        dual_matrix[row, col] = 1. if row == col else 0.
 
-"""
-dual_rhs_no_bc = []
-for f in sorted([f for f in os.listdir(
-        OUTPUT_PATH + cycle) if "dual_rhs_no_bc" in f]):
-    dual_rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
-"""
+    for rhs_no_bc_sample in dual_rhs_no_bc:
+        dual_system_rhs.append(rhs_no_bc_sample)
+        dual_system_rhs[-1][row] = 0.0
 
 
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
@@ -148,6 +155,9 @@ coordinates = np.vstack((
     np.tensordot(coordinates_t, np.ones_like(coordinates_x), 0).flatten(),
     np.tensordot(np.ones_like(coordinates_t), coordinates_x, 0).flatten()
 )).T
+
+
+# %% Definition for dofs variables and slab properties
 # n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block
 n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
 n_dofs["solperstep"] =  int(n_dofs["time"] / n_slabs - 1)
@@ -286,19 +296,49 @@ for i in range(n_slabs):
 #         primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
 ## %% goal functionals
 # J = {"u_h": 0., "u_r": 0.}
-# J_h_t = np.empty([n_slabs, 1])
 
 
+
+J_h_t = np.empty([n_slabs, 1])
 # for i in range(1, n_slabs+1):
-#     u_2 = primal_solutions[i][:]
-#     if i > 0:
-#         u_1 = primal_solutions[i-1][:]
-#     else:
-#         u_1 = initial_solution[:]
-#     J_h_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
-#         u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
+#     for j in r
+#     J_h_t[i-1] = primal_solutions[i].dot(dual_system_rhs[i])
+
+# for i in range(n_slabs):
+#     sol_dummy = np.zeros(n_dofs["solperstep"]*n_dofs["time_steps"])
+#     primal_sol_dealii_like.append(primal_dummy)
+#     if i %:
+        
+        
+
+for i, dual_rhs in enumerate(dual_rhs_no_bc):
+    
+    tmp_dual_rhs = []
+    for j in ordering_on_slab:
+        tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+    
+    J_h_t[i] = 0.
+    for j in range(n_dofs["solperstep"]+1):
+       J_h_t[i] += primal_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
+
 # J["u_h"] = np.sum(J_h_t)
 
+# # plot temporal evolution of cost funtiponal
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, n_slabs, 1),
+#           J_h_t, color='r', label="$u_h$")
+# # plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+# #           J_r_t, '--', c='#1f77b4', label="$u_N$")
+# plt.grid()
+# plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.xlabel('$t \; [$s$]$')
+# plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
+# # plt.xlim([0, n_slabs*time_step_size])
+# #plt.title("temporal evaluation of cost funtional")
+
+plt.show()
 
 # %% Definition ROM ingredients
 
@@ -434,7 +474,7 @@ for i in range(n_slabs):
     
     # print(f"len sol before update : {len(projected_reduced_solutions)}")
     # error indicator
-    temporal_interval_error_relative.append( 1.0 if i % 10 == 0 else 0.0 )
+    temporal_interval_error_relative.append( 1.0 if i % 5 == 0 else 0.0 )
 
     if temporal_interval_error_relative[-1] > tol_rel:
         # print(i)
@@ -472,14 +512,20 @@ for i in range(n_slabs):
 
 
 
-# %% Postprocessing
-# J_r_t = np.empty([n_slabs, 1])
-# for i in range(1, n_slabs+1):
-#     u_2 = projected_reduced_solutions[i][:]
-#     u_1 = projected_reduced_solutions[i-1][:]
-#     J_r_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
-#         u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
-# J["u_r"] = np.sum(J_r_t)
+# %% Computing Cost functional
+
+J_r_t = np.empty([n_slabs, 1])
+
+
+for i, dual_rhs in enumerate(dual_rhs_no_bc):
+    
+    tmp_dual_rhs = []
+    for j in ordering_on_slab:
+        tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+    
+    J_r_t[i] = 0.
+    for j in range(n_dofs["solperstep"]+1):
+       J_r_t[i] += projected_reduced_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
 
 
 end_execution = time.time()
@@ -616,30 +662,30 @@ plt.show()
 
 
 
-# # plot temporal evolution of cost funtiponal
-# plt.rc('text', usetex=True)
-# # plt.rcParams["figure.figsize"] = (10,2)
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#           J_h_t, color='r', label="$u_h$")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#           J_r_t, '--', c='#1f77b4', label="$u_N$")
-# plt.grid()
-# plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-# plt.xlabel('$t \; [$s$]$')
-# plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
-# plt.xlim([0, n_slabs*time_step_size])
-# #plt.title("temporal evaluation of cost funtional")
+# plot temporal evolution of cost funtiponal
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_h_t, color='r', label="$u_h$")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_r_t, '--', c='#1f77b4', label="$u_N$")
+plt.grid()
+plt.legend()
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
+plt.xlim([0, n_slabs*time_step_size])
+#plt.title("temporal evaluation of cost funtional")
 
-# plt.show()
+plt.show()
 
 
 # plot temporal evolution of cost funtiponal
 # plt.rcParams["figure.figsize"] = (10,2)
-# # plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-# #          temporal_interval_error, c='#1f77b4', label="estimate")
 # plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#          J_h_t-J_r_t, color='r', label="error")
+#           temporal_interval_error, c='#1f77b4', label="estimate")
+# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+#           J_h_t-J_r_t, color='r', label="error")
 # plt.grid()
 # plt.legend()
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
