@@ -20,11 +20,10 @@ SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
-ENERGY_PRIMAL_DISPLACEMENT = 0.99999
-ENERGY_PRIMAL_VELOCITY = 0.999999
+ENERGY_PRIMAL_DISPLACEMENT = 0.99999999
+ENERGY_PRIMAL_VELOCITY = 0.9999999
 ENERGY_DUAL = 0.999999
 
-CG_ORDER = 2
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
@@ -199,17 +198,24 @@ print(f"matrix_no_bc.shape = {matrix_no_bc.shape}")
 # %% primal FOM solve
 # solve D x_2 = b_2 - C x_0 since x_1 = x_0 due to continuity
 start_execution = time.time()
-last_primal_solution = np.zeros((n_dofs["time_step"],))
+last_primal_solution = np.zeros((n_dofs["time_step"],))    
+
+
+# primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
+    
+#     for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
+#         primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+        
 last_primal_solution[:] = initial_solution[:]
 primal_solutions = [initial_solution[:]]
 
 for i in range(n_slabs):
     # creating primal rhs and applying BC to it
-    primal_rhs = primal_system_rhs[i][2*n_dofs["space"]:].copy() - C_wbc.dot(last_primal_solution)
+    primal_rhs = primal_system_rhs[i][n_dofs["time_step"]:].copy() - C_wbc.dot(last_primal_solution)
     primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
     
     for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
-        primal_solutions.append(primal_solution[j*2*n_dofs["space"]:(j+1)*2*n_dofs["space"]])
+        primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
         
     last_primal_solution = primal_solutions[-1]
 end_execution = time.time()
@@ -239,16 +245,16 @@ for i in range(n_slabs):
 
 # %% applying BC to dual matrix
 # dual_matrix = matrix_no_bc.T.tocsr()
-# for row in range(2*n_dofs["space"]):
+# for row in range(n_dofs["time_step"]):
 #     for col in dual_matrix.getrow(row).nonzero()[1]:
 #         dual_matrix[row, col] = 1. if row == col else 0.
 
 # ------------
 # %% reduced linear equation system size, since solution of first time DoF can be enforced
-# J_1 = functional_matrix_no_bc[:2*n_dofs["space"], :2*n_dofs["space"]]
-# J_2 = functional_matrix_no_bc[:2*n_dofs["space"], 2*n_dofs["space"]:]
-# J_3 = functional_matrix_no_bc[2*n_dofs["space"]:, :2*n_dofs["space"]]
-# J_4 = functional_matrix_no_bc[2*n_dofs["space"]:, 2*n_dofs["space"]:]
+# J_1 = functional_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]]
+# J_2 = functional_matrix_no_bc[:n_dofs["time_step"], n_dofs["time_step"]:]
+# J_3 = functional_matrix_no_bc[n_dofs["time_step"]:, :n_dofs["time_step"]]
+# J_4 = functional_matrix_no_bc[n_dofs["time_step"]:, n_dofs["time_step"]:]
 
 # print(f"J_1.shape = {J_1.shape}")
 # print(f"J_2.shape = {J_2.shape}")
@@ -256,10 +262,10 @@ for i in range(n_slabs):
 # ------------
 # %% dual FOM solve
 # start_execution = time.time()
-# last_dual_solution = np.zeros((2*n_dofs["space"],))
+# last_dual_solution = np.zeros((n_dofs["time_step"],))
 # # last_dual_solution[:] = initial_solution[:]
 # # zero initial condition for dual problem
-# dual_solutions = [np.zeros((2*n_dofs["space"],))]
+# dual_solutions = [np.zeros((n_dofs["time_step"],))]
 # for i in list(range(n_slabs))[::-1]:
 #     # creating dual rhs and applying BC to it
 #     # functional_matrix_no_bc.dot(primal_solutions[i])
@@ -420,15 +426,21 @@ extime_dual_solve = 0.0
 extime_error = 0.0
 extime_update = 0.0
 
+n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + pod_basis["velocity"].shape[1]
 for i in range(n_slabs):
+    # print(i)
     start_time = time.time()
     # primal ROM solve
-    reduced_rhs = reduce_vector(
-        rhs_no_bc[i][2*n_dofs["space"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
+    reduced_rhs = reduce_vector(rhs_no_bc[i][n_dofs["time_step"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
     reduced_solution = np.linalg.solve(D_reduced, reduced_rhs)
+   
+    for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
+        projected_reduced_solutions.append(project_vector(reduced_solution[j*n_dofs["reduced_primal"]:(j+1)*n_dofs["reduced_primal"]],pod_basis))
 
-    projected_reduced_solutions.append(
-        project_vector(reduced_solution, pod_basis))
+
+
+    # projected_reduced_solutions.append(
+    #     project_vector(reduced_solution, pod_basis))
 
     # reduced_dual_rhs=J_2_reduced.dot(reduced_solution) + J_1_reduced.dot(reduced_solution_old)
     # reduced_dual_rhs -= B_reduced.T.dot(forward_reduced_dual_solutions[-1])
@@ -438,7 +450,7 @@ for i in range(n_slabs):
     # ATTENTION WE HAVE TO SPLIT THE REDUCED SOLUTION SINCE IT CONTAINS NOW MORE THEN ONE TIMESTEP
     # IF higher than cg(1)
 
-    reduced_solution_old = reduced_solution
+    reduced_solution_old = reduced_solution[(ordering_on_slab[-1]-1)*n_dofs["reduced_primal"]:((ordering_on_slab[-1]-1)+1)*n_dofs["reduced_primal"]]
 
     # print(np.linalg.norm(projected_reduced_solutions[i+1][:n_dofs["space"]]-primal_solutions[i+1]
     #                      [:n_dofs["space"]])/np.linalg.norm(primal_solutions[i+1][:n_dofs["space"]]))
@@ -453,22 +465,26 @@ for i in range(n_slabs):
 
 
 # %% postprocessing
-J_r_t = np.empty([n_slabs, 1])
-for i in range(1, n_slabs+1):
-    u_2 = projected_reduced_solutions[i][:]
-    u_1 = projected_reduced_solutions[i-1][:]
-    J_r_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
-        u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
-J["u_r"] = np.sum(J_r_t)
+# J_r_t = np.empty([n_slabs, 1])
+# for i in range(1, n_slabs+1):
+#     u_2 = projected_reduced_solutions[i][:]
+#     u_1 = projected_reduced_solutions[i-1][:]
+#     J_r_t[i-1] = u_1.dot(J_1.dot(u_1)+J_2.dot(u_2)) + \
+#         u_2.dot(J_3.dot(u_1)+J_4.dot(u_2))
+# J["u_r"] = np.sum(J_r_t)
 
 
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
 print("ROM time:        " + str(execution_time_ROM))
 
-for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
-    save_vtk(SAVE_PATH + f"/primal_solution{i:05}.vtk",
-             {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
+for i, (t, primal_solution) in enumerate(zip(solution_times, projected_reduced_solutions)):
+    save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+        primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=t)
+
+# for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
+#     save_vtk(SAVE_PATH + f"/primal_solution{i:05}.vtk",
+#              {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
 
 # for i, projected_reduced_dual_solution in enumerate(projected_reduced_dual_solutions):
 #     save_vtk(OUTPUT_PATH + cycle + f"/dual_solution{i:05}.vtk",
@@ -565,10 +581,10 @@ plt.show()
 # plot pointwise displacement at (6,0.5,0)
 plt.rc('text', usetex=True)
 # plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs+1),
-         tuple(primal_solutions[i][index2measuredisp] for i in range(n_slabs+1)), label="pw displacement -fom")
-plt.plot(np.arange(0, n_slabs+1),
-         tuple(projected_reduced_solutions[i][index2measuredisp] for i in range(n_slabs+1)), label="pw displacement -rom")
+plt.plot(np.arange(0, n_slabs*n_dofs["solperstep"]+1),
+         tuple(primal_solutions[i][index2measuredisp] for i in range(n_slabs*n_dofs["solperstep"]+1)), label="pw displacement -fom")
+plt.plot(np.arange(0, n_slabs*n_dofs["solperstep"]+1),
+         tuple(projected_reduced_solutions[i][index2measuredisp] for i in range(n_dofs["solperstep"]*n_slabs+1)), label="pw displacement -rom")
 # plt.plot(np.arange(0, n_slabs+1),
 #          error_dual_displacement, label="dual")
 # plt.yscale('log')
