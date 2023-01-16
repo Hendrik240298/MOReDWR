@@ -30,7 +30,7 @@
  * we solve sequentially (forward-in-time) on time slabs Q_n := I_n x Ω to reduce the size of the linear systems.
  * This also allows the usage of different temporal polynomial degrees on each slab, i.e. r := (r_1, r_2, ..., r_M) is now a multiindex.
  * 
- * Author: Julian Roth, 2022
+ * Author: Hendrik Fischer and Julian Roth, 2022-2023
  * 
  * For more information on tensor-product space-time finite elements please also check out the DTM-project by Uwe Köcher and contributors.
  */
@@ -317,11 +317,11 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
-	SparseMatrix<double> dual_matrix;
 	SparseDirectUMFPACK A_direct;
 	Vector<double> solution;
 	Vector<double> initial_solution; // u(0) or u(t_0)
 	Vector<double> system_rhs;
+	Vector<double> dual_rhs;
 
 	FEValuesExtractors::Vector displacement;
   	FEValuesExtractors::Vector velocity;
@@ -492,6 +492,8 @@ void SpaceTime<3>::make_grids() {
 		    {
 		    	if (cell->face(face)->center()[0] < 1e-10)
 					cell->face(face)->set_boundary_id(0); //   hom. Dirichlet BC
+		    	else if (cell->face(face)->center()[0] > 6.-1e-10)
+		    		cell->face(face)->set_boundary_id(3); //   hom. Neumann BC + goal functional evaluation
 				else if (cell->face(face)->center()[1] > (1. - 1.e-10))
 					cell->face(face)->set_boundary_id(2); // inhom. Neumann BC
 				else
@@ -551,11 +553,11 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	  sparsity_pattern.print_svg(out_sparsity);
 	  
 	  system_matrix.reinit(sparsity_pattern);
-	  dual_matrix.reinit(sparsity_pattern);
 	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
+	dual_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 }
 
 template<int dim>
@@ -568,7 +570,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	FEValues<dim> space_fe_values(space_fe, space_quad_formula,
 			update_values | update_gradients | update_quadrature_points | update_JxW_values);
 	FEFaceValues<dim> space_fe_face_values(space_fe, space_face_quad_formula,
-					update_values | update_JxW_values);
+					update_values | update_gradients | update_normal_vectors | update_JxW_values);
 	const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
 	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
 	
@@ -582,8 +584,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
-	FullMatrix<double> cell_dual_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
+	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
 	
 	Tensor <2,dim> identity;
@@ -592,175 +594,164 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 
 	// locally assemble on each space-time cell
 	for (const auto &space_cell : space_dof_handler.active_cell_iterators()) {
-	  space_fe_values.reinit(space_cell);
-	  space_cell->get_dof_indices(space_local_dof_indices);
-	  
-	  if (assemble_matrix)
-	  {
-	    for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
-	      time_fe_values.reinit(time_cell);
-	      time_cell->get_dof_indices(time_local_dof_indices);
-	      
-	      cell_matrix = 0;
-	      cell_dual_matrix = 0;
-	      
-	      for (const unsigned int qq : time_fe_values.quadrature_point_indices())
-	      {
-		// time quadrature point
-		const double t_qq = time_fe_values.quadrature_point(qq)[0];
-		right_hand_side.set_time(t_qq);
-		
-		for (const unsigned int q : space_fe_values.quadrature_point_indices())
-		{
-		  // space quadrature point
-		  const auto x_q = space_fe_values.quadrature_point(q);
-		  
-		  for (const unsigned int i : space_fe_values.dof_indices())
-		    for (const unsigned int ii : time_fe_values.dof_indices())
-		    {
-		      // TODO: right hand side
-  //		    cell_rhs(i + ii * space_dofs_per_cell) += (
-  //		         space_fe_values[displacement].value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ_{i,ii}(t_qq, x_q)
-  //								     right_hand_side.value(x_q) * // f(t_qq, x_q)
-  //					        space_fe_values.JxW(q) * time_fe_values.JxW(qq)   // d(t,x)
-  //		    );
-			  
-			  const Tensor<2, dim> symmetric_gradient_i = 0.5 * (space_fe_values[displacement].gradient(i, q) + transpose(space_fe_values[displacement].gradient(i, q)));
-			  const Tensor<2, dim> stress_tensor_i = 2. * mu * symmetric_gradient_i + lambda * trace(symmetric_gradient_i) * identity;
-		      
-		      // system matrix
-		      for (const unsigned int j : space_fe_values.dof_indices())
-			for (const unsigned int jj : time_fe_values.dof_indices())
-			{
-			  const Tensor<2, dim> symmetric_gradient_j =  0.5 * (space_fe_values[displacement].gradient(j, q) + transpose(space_fe_values[displacement].gradient(j, q)));
-			    
-				  cell_matrix(
-				    j + jj * space_dofs_per_cell,
-				    i + ii * space_dofs_per_cell
-				  ) += (
-				    space_fe_values[velocity].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] *     // ∂_t ϕ^v_{i,ii}(t_qq, x_q)
-				    space_fe_values[displacement].value(j, q) * time_fe_values.shape_value(jj, qq)     //     ϕ^u_{j,jj}(t_qq, x_q)
-													    // +
-				    + scalar_product(
-						    stress_tensor_i * time_fe_values.shape_value(ii, qq),  // ∇_x ϕ^u_{i,ii}(t_qq, x_q)
-						    symmetric_gradient_j * time_fe_values.shape_value(jj, qq)   // ∇_x ϕ^u_{j,jj}(t_qq, x_q)
-				    )
-													    // +
-				    + space_fe_values[displacement].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] * // ∂_t ϕ^u_{i,ii}(t_qq, x_q)
-				    space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)           //     ϕ^v_{j,jj}(t_qq, x_q)
-													    // -
-				    - space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
-				    space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
-				  ) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
-	  
-				  //double indicator_function = 1.; // 
-				  double indicator_function = (space_cell->center()[0] < 0.) * (space_cell->center()[1] < 0.); //
-				  cell_dual_matrix(
-				    j + jj * space_dofs_per_cell,
-				    i + ii * space_dofs_per_cell
-				  ) += indicator_function * (
-				    space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *     // ϕ^v_{i,ii}(t_qq, x_q)
-				    space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)       // ϕ^v_{j,jj}(t_qq, x_q)
-													    // +
-				    + scalar_product(
-						    space_fe_values[displacement].gradient(i, q) * time_fe_values.shape_value(ii, qq),  // ∇_x ϕ^u_{i,ii}(t_qq, x_q)
-						    space_fe_values[displacement].gradient(j, q) * time_fe_values.shape_value(jj, qq)   // ∇_x ϕ^u_{j,jj}(t_qq, x_q)
-				    )
-				  ) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
-			}
-		    }
-		}
-	      }
-	      
-	      
-	      // distribute local to global
-	      if (assemble_matrix)
-		for (const unsigned int i : space_fe_values.dof_indices())
-		  for (const unsigned int ii : time_fe_values.dof_indices())
-		  {
-    //		// right hand side
-    //		system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
-		    
-		    // system matrix
-		    for (const unsigned int j : space_fe_values.dof_indices())
-		      for (const unsigned int jj : time_fe_values.dof_indices())
-		      {
-			system_matrix.add(
-			  space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
-			  space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
-			  cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
-			);
+		space_fe_values.reinit(space_cell);
+		space_cell->get_dof_indices(space_local_dof_indices);
 
-			dual_matrix.add(
-			  space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
-			  space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
-			  cell_dual_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
-			);
-		      }
-		  }
-	    }
-	  }
-	  
-	  for (const unsigned int space_face : space_cell->face_indices())
-		  if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 2)) // face is at inhom. Neumann boundary
-		  {
-//			  std::cout << "Boundary integral" << std::endl;
-			  space_fe_face_values.reinit(space_cell, space_face);
-			  for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
+		if (assemble_matrix)
+		{
+			for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
 				time_fe_values.reinit(time_cell);
 				time_cell->get_dof_indices(time_local_dof_indices);
-				
-				cell_rhs = 0;
+
+				cell_matrix = 0;
+				cell_dual_rhs = 0;
 
 				for (const unsigned int qq : time_fe_values.quadrature_point_indices())
 				{
 					// time quadrature point
-				    const double t_qq = time_fe_values.quadrature_point(qq)[0];
-				    right_hand_side.set_time(t_qq);
-						      
-					for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
+					const double t_qq = time_fe_values.quadrature_point(qq)[0];
+					right_hand_side.set_time(t_qq);
+
+					for (const unsigned int q : space_fe_values.quadrature_point_indices())
 					{
 						// space quadrature point
 						const auto x_q = space_fe_values.quadrature_point(q);
-						// precompute RHS value at (t_qq, x_q)
-						Tensor<1,dim> rhs_tensor_value;
-						for (unsigned int k=0; k < dim; k++)
-							rhs_tensor_value[k] = right_hand_side.value(x_q, k);
-						
-//						std::cout << "RHS: " << rhs_tensor_value[0] << ", " << rhs_tensor_value[1] << ", " << rhs_tensor_value[2] << std::endl;
-								
-						for (const unsigned int i : space_fe_face_values.dof_indices())
-						for (const unsigned int ii : time_fe_values.dof_indices())
-						{
-							auto tmp = (
-								space_fe_face_values[displacement].value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ^v_{i,ii}(t_qq, x_q)
-								rhs_tensor_value                                         				  //     g(t_qq, x_q)
-							) * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); 							// d(t,x)
-							
-							cell_rhs(
-								i + ii * space_dofs_per_cell
-							) += tmp;
-							
-//							std::cout << "RHS: " << rhs_tensor_value[0] << ", " << rhs_tensor_value[1] << ", " << rhs_tensor_value[2] << std::endl;
-//							std::cout << "Spatial Basis: " <<  space_fe_face_values[displacement].value(i, q)[0] << ", " <<  space_fe_face_values[displacement].value(i, q)[1] << ", " <<  space_fe_face_values[displacement].value(i, q)[2] << std::endl;
-//							std::cout << "Temporal Basis: " << time_fe_values.shape_value(ii, qq) << std::endl;
-//							std::cout << "J_h: " << space_fe_face_values.JxW(q) << std::endl;
-//							std::cout << "J_k: " << time_fe_values.JxW(qq) << std::endl;
-//							std::cout << "tmp: " << tmp << std::endl;
-//							std::cout << "cell_rhs1: " << cell_rhs.l2_norm() << std::endl;
-						}
+
+						for (const unsigned int i : space_fe_values.dof_indices())
+							for (const unsigned int ii : time_fe_values.dof_indices())
+							{
+								const Tensor<2, dim> symmetric_gradient_i = 0.5 * (space_fe_values[displacement].gradient(i, q) + transpose(space_fe_values[displacement].gradient(i, q)));
+								const Tensor<2, dim> stress_tensor_i = 2. * mu * symmetric_gradient_i + lambda * trace(symmetric_gradient_i) * identity;
+
+								// system matrix
+								for (const unsigned int j : space_fe_values.dof_indices())
+									for (const unsigned int jj : time_fe_values.dof_indices())
+									{
+										const Tensor<2, dim> symmetric_gradient_j =  0.5 * (space_fe_values[displacement].gradient(j, q) + transpose(space_fe_values[displacement].gradient(j, q)));
+
+										cell_matrix(
+												j + jj * space_dofs_per_cell,
+												i + ii * space_dofs_per_cell
+										) += (
+												space_fe_values[velocity].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] *     // ∂_t ϕ^v_{i,ii}(t_qq, x_q)
+												space_fe_values[displacement].value(j, q) * time_fe_values.shape_value(jj, qq)     //     ϕ^u_{j,jj}(t_qq, x_q)
+												                                                                  // +
+												+ scalar_product(
+														stress_tensor_i * time_fe_values.shape_value(ii, qq),       //  σ(ϕ^u)_{i,ii}(t_qq, x_q)
+														symmetric_gradient_j * time_fe_values.shape_value(jj, qq)   // ∇_x ϕ^u_{j,jj}(t_qq, x_q)
+												)
+												                                                                  // +
+												+ space_fe_values[displacement].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] * // ∂_t ϕ^u_{i,ii}(t_qq, x_q)
+												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)           //     ϕ^v_{j,jj}(t_qq, x_q)
+												                                                                  // -
+												- space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
+												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
+										) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+									}
+							}
 					}
 				}
-				
-//				std::cout << "cell_rhs2: " << cell_rhs.l2_norm() << std::endl;
-				
+
+
 				// distribute local to global
-				for (const unsigned int i : space_fe_face_values.dof_indices())
-				for (const unsigned int ii : time_fe_values.dof_indices())
-					system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
-//				std::cout << "system_rhs: " << system_rhs.l2_norm() << std::endl;
-			  }
-		  }
+				if (assemble_matrix)
+					for (const unsigned int i : space_fe_values.dof_indices())
+						for (const unsigned int ii : time_fe_values.dof_indices())
+						{
+							// system matrix
+							for (const unsigned int j : space_fe_values.dof_indices())
+								for (const unsigned int jj : time_fe_values.dof_indices())
+								{
+									system_matrix.add(
+											space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+											space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+											cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+									);
+								}
+						}
+			}
+		}
+
+		for (const unsigned int space_face : space_cell->face_indices())
+		{
+			if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 2)) // face is at inhom. Neumann boundary
+			{
+				space_fe_face_values.reinit(space_cell, space_face);
+				for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
+					time_fe_values.reinit(time_cell);
+					time_cell->get_dof_indices(time_local_dof_indices);
+
+					cell_rhs = 0;
+
+					for (const unsigned int qq : time_fe_values.quadrature_point_indices())
+					{
+						// time quadrature point
+						const double t_qq = time_fe_values.quadrature_point(qq)[0];
+						right_hand_side.set_time(t_qq);
+
+						for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
+						{
+							// space quadrature point
+							const auto x_q = space_fe_values.quadrature_point(q);
+							// precompute RHS value at (t_qq, x_q)
+							Tensor<1,dim> rhs_tensor_value;
+							for (unsigned int k=0; k < dim; k++)
+								rhs_tensor_value[k] = right_hand_side.value(x_q, k);
+
+							for (const unsigned int i : space_fe_face_values.dof_indices())
+								for (const unsigned int ii : time_fe_values.dof_indices())
+								{
+									auto tmp = (
+											space_fe_face_values[displacement].value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ^v_{i,ii}(t_qq, x_q)
+											rhs_tensor_value                                         				              //           g(t_qq, x_q)
+									) * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); 							// d(t,x)
+
+									cell_rhs(
+											i + ii * space_dofs_per_cell
+									) += tmp;
+								}
+						}
+					}
+
+					// distribute local to global
+					for (const unsigned int i : space_fe_face_values.dof_indices())
+						for (const unsigned int ii : time_fe_values.dof_indices())
+							system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
+				}
+			}
+			else if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 3)) // face is at hom. Neumann boundary on the opposite side of the Dirichlet BC, where the goal functional needs to be evaluated
+			{
+				space_fe_face_values.reinit(space_cell, space_face);
+				for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
+					time_fe_values.reinit(time_cell);
+					time_cell->get_dof_indices(time_local_dof_indices);
+
+					cell_dual_rhs = 0;
+
+					for (const unsigned int qq : time_fe_values.quadrature_point_indices())
+					{
+						for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
+						{
+							for (const unsigned int i : space_fe_face_values.dof_indices())
+								for (const unsigned int ii : time_fe_values.dof_indices())
+								{
+									const Tensor<2, dim> symmetric_gradient_i = 0.5 * (space_fe_face_values[displacement].gradient(i, q) + transpose(space_fe_face_values[displacement].gradient(i, q)));
+									const Tensor<2, dim> stress_tensor_i = 2. * mu * symmetric_gradient_i + lambda * trace(symmetric_gradient_i) * identity;
+
+									cell_dual_rhs(
+											i + ii * space_dofs_per_cell
+									) += (stress_tensor_i * space_fe_face_values.normal_vector(q))[0] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
+								}
+						}
+					}
+
+					// distribute local to global
+					for (const unsigned int i : space_fe_face_values.dof_indices())
+						for (const unsigned int ii : time_fe_values.dof_indices())
+							dual_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_dual_rhs(i + ii * space_dofs_per_cell);
+				}
+			}
+		}
 	}
 	
 	std::string output_dir = "../Data/" + std::to_string(dim) + "D/" + problem_name + "/cycle=" + std::to_string(cycle) + "/";
@@ -771,19 +762,13 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	{
 	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
 	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
-
-	  std::ofstream dual_matrix_no_bc_out(output_dir + "dual_matrix_no_bc.txt");
-	  print_as_numpy_arrays_high_resolution(dual_matrix, dual_matrix_no_bc_out, /*precision*/16); 
-	  
-	  //std::ofstream mass_matrix_no_bc_out(output_dir + "mass_matrix_no_bc.txt");
-	  //print_as_numpy_arrays_high_resolution(mass_matrix, mass_matrix_no_bc_out, /*precision*/16);
 	}
 	
 	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	system_rhs.print(rhs_no_bc_out, /*precision*/16);
 	
-	//std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
-	//dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
+	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
 	
 
 //	std::cout << "BEFORE IC - system_rhs: " << system_rhs.l2_norm() << std::endl;
