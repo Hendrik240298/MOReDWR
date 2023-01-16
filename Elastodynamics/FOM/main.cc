@@ -492,9 +492,7 @@ void SpaceTime<3>::make_grids() {
 		    {
 		    	if (cell->face(face)->center()[0] < 1e-10)
 					cell->face(face)->set_boundary_id(0); //   hom. Dirichlet BC
-		    	else if (cell->face(face)->center()[0] > 6.-1e-10)
-		    		cell->face(face)->set_boundary_id(3); //   hom. Neumann BC + goal functional evaluation
-				else if (cell->face(face)->center()[1] > (1. - 1.e-10))
+		    	else if (cell->face(face)->center()[1] > (1. - 1.e-10))
 					cell->face(face)->set_boundary_id(2); // inhom. Neumann BC
 				else
 					cell->face(face)->set_boundary_id(1); //   hom. Neumann BC
@@ -719,7 +717,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 							system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
 				}
 			}
-			else if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 3)) // face is at hom. Neumann boundary on the opposite side of the Dirichlet BC, where the goal functional needs to be evaluated
+			else if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 0)) // face is at hom. Dirichlet boundary
 			{
 				space_fe_face_values.reinit(space_cell, space_face);
 				for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
@@ -740,7 +738,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 
 									cell_dual_rhs(
 											i + ii * space_dofs_per_cell
-									) += (stress_tensor_i * space_fe_face_values.normal_vector(q))[0] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
+									) += (stress_tensor_i * space_fe_face_values.normal_vector(q))[1] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
 								}
 						}
 					}
