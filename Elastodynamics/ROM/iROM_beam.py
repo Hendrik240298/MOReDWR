@@ -183,10 +183,24 @@ for i in range(n_slabs):
 # -----------
 #  C  |  D
 # -----------
+
+# DEAL with dumb deal.ii ordering of time_steps
+# example: sol vector cg(2) = (z_1,z_3,z_2) why tf?!
+
+matrix_no_bc_ordered =  matrix_no_bc.copy() #np.zeros_like(matrix_no_bc)
+
+for i in range(len(ordering_on_slab)):
+    print(f"{ordering_on_slab[i]*n_dofs['time_step']}, {(ordering_on_slab[i]+1)*n_dofs['time_step']} --> {i*n_dofs['time_step']}, {(i+1)*n_dofs['time_step']} ")
+    matrix_no_bc_ordered[i*n_dofs["time_step"]:(i+1)*n_dofs["time_step"],:] = \
+    matrix_no_bc[ordering_on_slab[i]*n_dofs["time_step"]:(ordering_on_slab[i]+1)*n_dofs["time_step"],:]
+    
+    
 # need this for   dual problem
 A = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]]
 # need this for   dual problem
 B = matrix_no_bc[:n_dofs["time_step"], n_dofs["time_step"]:]
+
+
 # need this for primal and dual problem
 C = matrix_no_bc[n_dofs["time_step"]:, :n_dofs["time_step"]]
 # need this for primal and dual problem
