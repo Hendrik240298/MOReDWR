@@ -1393,7 +1393,7 @@ int main() {
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
-				r.push_back(1);
+				r.push_back(2);
 				t.push_back((i+1)*dt);
 		}
 
