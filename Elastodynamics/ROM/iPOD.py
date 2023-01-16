@@ -65,17 +65,19 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content,bunc
 
 def ROM_update(
         pod_basis,
-        # space_time_pod_basis,
-        reduced_system_matrix,
-        last_projected_reduced_solution,
-        primal_rhs, # with bc enforced
-        primal_matrix, # with bc enforced
-        singular_values,
-        total_energy,
-        n_dofs,
-        time_dofs_per_time_interval,
-        matrix_no_bc,
-        energy_content):
+        last_primal_solution, #last solution of slab before
+        C_wbc, #rhs system matrx with bc
+        D_wbc, #real system matrix with bc
+        C, #rhs system matrx without bc
+        D, #real system matrix without bc
+        primal_rhs, # with bc enforced: primal_system_rhs[i][n_dofs["time_step"]:].copy()
+        ordering_on_slab, #ordering of time dofs on slab
+        singular_values, #sigs of displacement and velocity
+        total_energy, #total energy of displacement and velocity
+        energy_content,
+        bunch_size,
+        n_dofs
+        ):
     # creating primal rhs and applying BC to it
     
     extime_solve_FOM = 0.0
@@ -84,61 +86,55 @@ def ROM_update(
     
     start_time = time.time()
     
-    ## Solve FOM step
-    primal_rhs = primal_system_rhs[i][n_dofs["time_step"]:].copy() - C_wbc.dot(last_primal_solution)
+
+    # solve fom 
+    primal_solutions = []
+    primal_rhs = primal_rhs - C_wbc.dot(last_primal_solution)
+
     primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
     
     for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
         primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-        
-    last_primal_solution = primal_solutions[-1]
-    
-    
-    primal_rhs -= jump_matrix_no_bc.dot(last_projected_reduced_solution)
-    for row in boundary_ids:
-        primal_rhs[row] = 0.  # NOTE: hardcoding homogeneous Dirichlet BC
-
-    projected_reduced_solution = scipy.sparse.linalg.spsolve(
-        primal_matrix, primal_rhs)
+            
     extime_solve_FOM = time.time() - start_time
     
     start_time = time.time()
     singular_values_tmp = singular_values
     total_energy_tmp = total_energy
-    bunch_tmp = np.empty([0, 0])
-    if ((
-            projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer()):
-        # onyl use first solution of slab since we assume that solutions are quite similar
-        for slab_step in range(
-                # 1):
-                int(projected_reduced_solution.shape[0] / n_dofs["space"])):
-            pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, projected_reduced_solution[range(
-                slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp,energy_content)
-    else:
-        print(
-            (projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer())
-        print("Error building slapwise POD")
+    bunch = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+    
+    for primal_solution in primal_solutions:
+        pod_basis["displacement"], bunch["displacement"], singular_values_tmp["displacement"], total_energy_tmp["displacement"] \
+            = iPOD(pod_basis["displacement"],
+                   bunch["displacement"],
+                   singular_values_tmp["displacement"],
+                   primal_solution[0:n_dofs["space"]],
+                   total_energy_tmp["displacement"],
+                   energy_content["displacement"],
+                   bunch_size)
+        pod_basis["velocity"], bunch["velocity"], singular_values_tmp["velocity"], total_energy_tmp["velocity"] \
+            = iPOD(pod_basis["velocity"],
+                   bunch["velocity"],
+                   singular_values_tmp["velocity"],
+                   primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+                   total_energy_tmp["velocity"],
+                   energy_content["velocity"],
+                   bunch_size)        
+    
     extime_iPOD = time.time() - start_time
     
     start_time = time.time()
-    # change from the FOM to the POD basis
-    # space_time_pod_basis = scipy.sparse.block_diag(
-    #     [pod_basis] * time_dofs_per_time_interval)
-    
-    # start_time1 = time.time()
-    # reduced_system_matrix = space_time_pod_basis.T.dot(
-    #     matrix_no_bc.dot(space_time_pod_basis))
-    
-    reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
-    reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
+
+    C_reduced = reduce_matrix(C,pod_basis,pod_basis)
+    D_reduced = reduce_matrix(D,pod_basis,pod_basis)
     
     extime_matrix = time.time() - start_time
-    
+    # print(f"len of ps in update :    {len(primal_solutions)}")
     # print("fom - prim:  " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
     # print("iPOD - prim: " + str(extime_iPOD/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_iPOD))
     # print("mat - prim:  " + str(extime_matrix/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_matrix))
     # return pod_basis, space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
-    return pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solution, singular_values_tmp, total_energy_tmp
+    return pod_basis, C_reduced, D_reduced, primal_solutions, singular_values_tmp, total_energy_tmp
 
 def ROM_update_dual(
         pod_basis,
