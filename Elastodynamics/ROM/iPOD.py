@@ -71,7 +71,7 @@ def ROM_update(
         C, #rhs system matrx without bc
         D, #real system matrix without bc
         primal_rhs, # with bc enforced: primal_system_rhs[i][n_dofs["time_step"]:].copy()
-        ordering_on_slab, #ordering of time dofs on slab
+        time_steps_on_slab, #ordering of time dofs on slab
         singular_values, #sigs of displacement and velocity
         total_energy, #total energy of displacement and velocity
         energy_content,
@@ -93,7 +93,8 @@ def ROM_update(
 
     primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
     
-    for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
+    # for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
+    for j in range(time_steps_on_slab):
         primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
             
     extime_solve_FOM = time.time() - start_time
