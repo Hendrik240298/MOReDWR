@@ -378,9 +378,6 @@ for i in range(n_slabs):
     if temporal_interval_error_relative[-1] > tol_rel:
     # np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
         temporal_interval_error_incidactor[-1] = 1
-        # print(np.linalg.norm(projected_reduced_solutions[-1]))
-        # pod_basis,  space_time_pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
-        pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
                      pod_basis, 
                      # space_time_pod_basis, 
                      reduced_system_matrix, 
