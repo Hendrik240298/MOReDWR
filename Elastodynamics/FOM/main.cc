@@ -738,7 +738,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 
 									cell_dual_rhs(
 											i + ii * space_dofs_per_cell
-									) += (stress_tensor_i * space_fe_face_values.normal_vector(q))[1] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
+									) += (1. / (end_time-start_time)) * (stress_tensor_i * space_fe_face_values.normal_vector(q))[1] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
 								}
 						}
 					}
@@ -1391,7 +1391,7 @@ int main() {
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
-				r.push_back(2);
+				r.push_back(1);
 				t.push_back((i+1)*dt);
 		}
 
@@ -1401,7 +1401,7 @@ int main() {
 		  1,                // s ->  spatial FE degree
 		  r,                // r -> temporal FE degree
 		  t, 		    	// time_points,
-		  5,                // max_n_refinement_cycles,
+		  4,                // max_n_refinement_cycles,
 		  true,             // refine_space
 		  false,             // refine_time
 		  false              // split_slabs
