@@ -24,7 +24,7 @@
  * ---------------------------------------------------------------------
  * TENSOR-PRODUCT SPACE-TIME FINITE ELEMENTS W/ TIME-SLABBING:
  * ===========================================================
- * Tensor-product space-time code for the elastodynamics equation with Q^s finite elements in space and Q^r finite elements in time: cG(s)cG(r)
+ * Tensor-product space-time code for the DUAL elastodynamics equation with Q^s finite elements in space and Q^r finite elements in time: cG(s)cG(r)
  * The time interval I = (0,T) is being divided into subintervals I_1, I_2, ..., I_M 
  * and then instead of solving the PDE all at once on the full space-time domain Q := I x Ω
  * we solve sequentially (forward-in-time) on time slabs Q_n := I_n x Ω to reduce the size of the linear systems.
@@ -297,7 +297,7 @@ private:
 	void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
 	void assemble_system(std::shared_ptr<Slab> &slab, unsigned int slab_number, unsigned int cycle, bool first_slab, bool assemble_matrix);
-	void apply_initial_condition();
+	void apply_final_condition(unsigned int offset);
 	void apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsigned int cycle, bool first_slab);
 	void solve(bool invert);
 	void output_results(std::shared_ptr<Slab> &slab, const unsigned int refinement_cycle, unsigned int slab_number);
@@ -319,11 +319,11 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> primal_matrix;
 	SparseDirectUMFPACK A_direct;
 	Vector<double> solution;
-	Vector<double> initial_solution; // u(0) or u(t_0)
+	Vector<double> final_solution; // u(T) or u(T_0)
 	Vector<double> system_rhs;
-	Vector<double> dual_rhs;
 
 	FEValuesExtractors::Vector displacement;
   	FEValuesExtractors::Vector velocity;
@@ -524,7 +524,7 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	// space-time sparsity pattern = tensor product of spatial and temporal sparsity pattern
 	//
 	
-	if (k == 1)
+	if (slab->end_time == end_time)
 	{
 	  // spatial sparsity pattern
 	  DynamicSparsityPattern space_dsp(space_dof_handler.n_dofs());
@@ -553,11 +553,11 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	  sparsity_pattern.print_svg(out_sparsity);
 	  
 	  system_matrix.reinit(sparsity_pattern);
+	  primal_matrix.reinit(sparsity_pattern);
 	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 	system_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
-	dual_rhs.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
 }
 
 template<int dim>
@@ -584,8 +584,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
+	FullMatrix<double> cell_primal_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
-	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
 	
 	Tensor <2,dim> identity;
@@ -604,7 +604,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 				time_cell->get_dof_indices(time_local_dof_indices);
 
 				cell_matrix = 0;
-				cell_dual_rhs = 0;
+				cell_rhs = 0;
 
 				for (const unsigned int qq : time_fe_values.quadrature_point_indices())
 				{
@@ -628,8 +628,9 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 									for (const unsigned int jj : time_fe_values.dof_indices())
 									{
 										const Tensor<2, dim> symmetric_gradient_j =  0.5 * (space_fe_values[displacement].gradient(j, q) + transpose(space_fe_values[displacement].gradient(j, q)));
+										const Tensor<2, dim> stress_tensor_j = 2. * mu * symmetric_gradient_j + lambda * trace(symmetric_gradient_j) * identity;
 
-										cell_matrix(
+										cell_primal_matrix(
 												j + jj * space_dofs_per_cell,
 												i + ii * space_dofs_per_cell
 										) += (
@@ -644,6 +645,25 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 												+ space_fe_values[displacement].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] * // ∂_t ϕ^u_{i,ii}(t_qq, x_q)
 												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)           //     ϕ^v_{j,jj}(t_qq, x_q)
 												                                                                  // -
+												- space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
+												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
+										) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
+
+										cell_matrix(
+												j + jj * space_dofs_per_cell,
+												i + ii * space_dofs_per_cell
+										) += (
+												- space_fe_values[velocity].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] *   // -∂_t ϕ^v_{i,ii}(t_qq, x_q)
+												space_fe_values[displacement].value(j, q) * time_fe_values.shape_value(jj, qq)     //      ϕ^u_{j,jj}(t_qq, x_q)
+																												  // +
+												+ scalar_product(
+														symmetric_gradient_i * time_fe_values.shape_value(ii, qq),   //  ∇_x ϕ^u_{i,ii}(t_qq, x_q)
+														stress_tensor_j * time_fe_values.shape_value(jj, qq)         //   σ(ϕ^u)_{j,jj}(t_qq, x_q)
+												)
+																												  // +
+												- space_fe_values[displacement].value(i, q) * time_fe_values.shape_grad(ii, qq)[0] * // -∂_t ϕ^u_{i,ii}(t_qq, x_q)
+												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)           //      ϕ^v_{j,jj}(t_qq, x_q)
+																												  // -
 												- space_fe_values[velocity].value(i, q) * time_fe_values.shape_value(ii, qq) *  //  ϕ^v_{i,ii}(t_qq, x_q)
 												space_fe_values[velocity].value(j, q) * time_fe_values.shape_value(jj, qq)      //  ϕ^v_{j,jj}(t_qq, x_q)
 										) * space_fe_values.JxW(q) * time_fe_values.JxW(qq); 			  // d(t,x)
@@ -662,6 +682,14 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 							for (const unsigned int j : space_fe_values.dof_indices())
 								for (const unsigned int jj : time_fe_values.dof_indices())
 								{
+									// primal system matrix
+									primal_matrix.add(
+											space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+											space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+											cell_primal_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+									);
+
+									// dual system matrix
 									system_matrix.add(
 											space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
 											space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
@@ -674,7 +702,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 
 		for (const unsigned int space_face : space_cell->face_indices())
 		{
-			if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 2)) // face is at inhom. Neumann boundary
+			if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 0)) // face is at hom. Dirichlet boundary
 			{
 				space_fe_face_values.reinit(space_cell, space_face);
 				for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
@@ -682,51 +710,6 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 					time_cell->get_dof_indices(time_local_dof_indices);
 
 					cell_rhs = 0;
-
-					for (const unsigned int qq : time_fe_values.quadrature_point_indices())
-					{
-						// time quadrature point
-						const double t_qq = time_fe_values.quadrature_point(qq)[0];
-						right_hand_side.set_time(t_qq);
-
-						for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
-						{
-							// space quadrature point
-							const auto x_q = space_fe_values.quadrature_point(q);
-							// precompute RHS value at (t_qq, x_q)
-							Tensor<1,dim> rhs_tensor_value;
-							for (unsigned int k=0; k < dim; k++)
-								rhs_tensor_value[k] = right_hand_side.value(x_q, k);
-
-							for (const unsigned int i : space_fe_face_values.dof_indices())
-								for (const unsigned int ii : time_fe_values.dof_indices())
-								{
-									auto tmp = (
-											space_fe_face_values[displacement].value(i, q) * time_fe_values.shape_value(ii, qq) * // ϕ^v_{i,ii}(t_qq, x_q)
-											rhs_tensor_value                                         				              //           g(t_qq, x_q)
-									) * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); 							// d(t,x)
-
-									cell_rhs(
-											i + ii * space_dofs_per_cell
-									) += tmp;
-								}
-						}
-					}
-
-					// distribute local to global
-					for (const unsigned int i : space_fe_face_values.dof_indices())
-						for (const unsigned int ii : time_fe_values.dof_indices())
-							system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
-				}
-			}
-			else if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 0)) // face is at hom. Dirichlet boundary
-			{
-				space_fe_face_values.reinit(space_cell, space_face);
-				for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
-					time_fe_values.reinit(time_cell);
-					time_cell->get_dof_indices(time_local_dof_indices);
-
-					cell_dual_rhs = 0;
 
 					for (const unsigned int qq : time_fe_values.quadrature_point_indices())
 					{
@@ -738,9 +721,9 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 									const Tensor<2, dim> symmetric_gradient_i = 0.5 * (space_fe_face_values[displacement].gradient(i, q) + transpose(space_fe_face_values[displacement].gradient(i, q)));
 									const Tensor<2, dim> stress_tensor_i = 2. * mu * symmetric_gradient_i + lambda * trace(symmetric_gradient_i) * identity;
 
-									cell_dual_rhs(
+									cell_rhs(
 											i + ii * space_dofs_per_cell
-									) += (1. / (end_time-start_time)) * (stress_tensor_i * space_fe_face_values.normal_vector(q))[1] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
+									) += (stress_tensor_i * space_fe_face_values.normal_vector(q))[1] * space_fe_face_values.JxW(q) * time_fe_values.JxW(qq); // J = σ(ϕ^u)_{i,ii}(t_qq, x_q) · n(x_q) · (1,0,0) d(t,x)
 								}
 						}
 					}
@@ -748,7 +731,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 					// distribute local to global
 					for (const unsigned int i : space_fe_face_values.dof_indices())
 						for (const unsigned int ii : time_fe_values.dof_indices())
-							dual_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_dual_rhs(i + ii * space_dofs_per_cell);
+							system_rhs(space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) += cell_rhs(i + ii * space_dofs_per_cell);
 				}
 			}
 		}
@@ -760,37 +743,36 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	// save system matrix and rhs to file (NO BC)
 	if (first_slab)
 	{
+	  std::ofstream dual_matrix_no_bc_out(output_dir + "dual_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(system_matrix, dual_matrix_no_bc_out, /*precision*/16);
+
 	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
-	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
+	  print_as_numpy_arrays_high_resolution(primal_matrix, matrix_no_bc_out, /*precision*/16);
 	}
 	
-	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+	std::ofstream rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	system_rhs.print(rhs_no_bc_out, /*precision*/16);
-	
-	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
-	dual_rhs.print(dual_rhs_no_bc_out, /*precision*/16);
-	
 
 //	std::cout << "BEFORE IC - system_rhs: " << system_rhs.l2_norm() << std::endl;
-	apply_initial_condition();
+	apply_final_condition(space_dof_handler.n_dofs() * (slab->time_dof_handler.n_dofs()-1));
 //	std::cout << "AFTER IC - system_rhs: " << system_rhs.l2_norm() << std::endl;
 	apply_boundary_conditions(slab, cycle,first_slab);
 //	std::cout << "AFTER BC - system_rhs: " << system_rhs.l2_norm() << std::endl;
 }
 
 template<int dim>
-void SpaceTime<dim>::apply_initial_condition() {
-    // apply initial value on linear system
+void SpaceTime<dim>::apply_final_condition(unsigned int offset) {
+    // apply final value on linear system
   
     // clear first N_space rows of system matrix
-    for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+    for (unsigned int i = offset + 0; i < offset + space_dof_handler.n_dofs(); ++i)
     {
       // iterate over entries of i.th row of system matrix
       // A_ij = δ_ij
       for (typename SparseMatrix<double>::iterator p = system_matrix.begin(i); p != system_matrix.end(i); ++p)
          p->value() = 0.;
       system_matrix.set(i, i, 1.);
-      system_rhs(i) = initial_solution(i);
+      system_rhs(i) = final_solution(i-offset);
     }
 
 }	
@@ -1395,31 +1377,17 @@ void SpaceTime<dim>::run() {
 		constraints.close();
 
 		// compute initial value vector
-		initial_solution.reinit(space_dof_handler.n_dofs());
-		// TODO: if using non-zero initial values, create an initial values function of size 2*dim
-//		if (dim == 1)
-//		{
-//			VectorTools::interpolate(space_dof_handler,
-//				 InitialValues<dim>(),
-//				 initial_solution,
-//				 ComponentMask());
-//		}
-//		else if (dim == 2)
-//		{		
-//			VectorTools::interpolate(space_dof_handler,
-//				 InitialValues2D<dim>(),
-//				 initial_solution,
-//				 ComponentMask());
-//		}
-		std::ofstream initial_out(output_dir + "initial_solution.txt");
-		initial_solution.print(initial_out, /*precision*/16);	
+		final_solution.reinit(space_dof_handler.n_dofs());
 
-		for (unsigned int k = 0; k < slabs.size(); ++k)
+		std::ofstream final_out(output_dir + "final_solution.txt");
+		final_solution.print(final_out, /*precision*/16);
+
+		for (unsigned int k = slabs.size()-1; k+1 > 0; --k)
 		{
 			// create and solve linear system
 			setup_system(slabs[k], k+1);
-			assemble_system(slabs[k], k, cycle, k == 0, k == 0);
-			solve(k == 0);
+			assemble_system(slabs[k], k, cycle, (k == slabs.size()-1), (k == slabs.size()-1));
+			solve((k == slabs.size()-1));
 
 			// output Space-Time DoF coordinates
 	   		print_coordinates(slabs[k], output_dir, k);
@@ -1431,17 +1399,15 @@ void SpaceTime<dim>::run() {
 			compute_functional_values(cycle, k);
 
 			// Compute the error to the analytical solution
-			process_solution(slabs[k], cycle, (k == slabs.size()-1));
+			process_solution(slabs[k], cycle, (k == 0));
 
 			///////////////////////
 			// prepare next slab
 			//
 			    
-			// get initial value for next slab
-			auto last_time_point = std::prev(time_support_points.end());
-			unsigned int ii = last_time_point->second;
+			// get final value for next slab and ASSUME: that 0 is the first time DoF !!!
 			for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
-			  initial_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
+			  final_solution(i) = solution(i);
 
 			// remove old temporal support points
 	   		time_support_points.clear();
@@ -1499,7 +1465,7 @@ int main() {
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
-				r.push_back(1);
+				r.push_back(2);
 				t.push_back((i+1)*dt);
 		}
 
@@ -1509,7 +1475,7 @@ int main() {
 		  1,                // s ->  spatial FE degree
 		  r,                // r -> temporal FE degree
 		  t, 		    	// time_points,
-		  4,                // max_n_refinement_cycles,
+		  5,                // max_n_refinement_cycles,
 		  true,             // refine_space
 		  false,             // refine_time
 		  false              // split_slabs
