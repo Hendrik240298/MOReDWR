@@ -195,44 +195,6 @@ def ROM_update_dual(
     reduced_system_matrix = reduce_matrix(matrix_no_bc,pod_basis,pod_basis)
     reduced_jump_matrix = reduce_matrix(jump_matrix_no_bc,pod_basis,pod_basis)
     
-    
-    # pool = multiprocessing.Pool(4)
-    # processes = []
-    # processes.append(pool.apply_async(reduce_matrix, args=(matrix_no_bc,pod_basis,pod_basis,)))
-    # processes.append(pool.apply_async(reduce_matrix, args=(jump_matrix_no_bc,pod_basis,pod_basis,)))
-
-    # result = [p.get() for p in processes]
-    
-    # reduced_system_matrix   = result[0] #   pod_basis_left.T.dot(matrix[:n_h_dofs,:n_h_dofs].dot(pod_basis_right))
-    # reduced_jump_matrix  = result[1]  #pod_basis_left.T.dot(matrix[n_h_dofs:,:n_h_dofs].dot(pod_basis_right))
-
-    # start_time1 = time.time()
-    # reduced_system_matrix = space_time_pod_basis.T.dot(
-    #     matrix_no_bc.dot(space_time_pod_basis))
-    # reduced_system_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # start_time1_1 = time.time()
-    # reduced_system_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_system_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_system_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
-    
-    # # start_time2 = time.time()
-    # # reduced_jump_matrix = space_time_pod_basis.T.dot(
-    # #     jump_matrix_no_bc.dot(space_time_pod_basis))
-    # reduced_jump_matrix = np.zeros([pod_basis.shape[1]*2,pod_basis.shape[1]*2])
-    # start_time2_2 = time.time()
-    # reduced_jump_matrix[:pod_basis.shape[1],   :pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:,:pod_basis.shape[1]]   = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,:n_dofs["space"]].dot(pod_basis))
-    # reduced_jump_matrix[:pod_basis.shape[1],   pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[:n_dofs["space"],n_dofs["space"]:].dot(pod_basis))
-    # reduced_jump_matrix[pod_basis.shape[1]:, pod_basis.shape[1]:] = pod_basis.T.dot(jump_matrix_no_bc[n_dofs["space"]:,n_dofs["space"]:].dot(pod_basis))
- 
-    
-    
-    # print(f"ST-POD Basis: {start_time1-start_time}")
-    # # print(f"Red SM:       {start_time1_1-start_time1}")
-    # print(f"Red SM - bw:  {start_time2-start_time1_1}")
-    # # print(f"Red JM:       {start_time2_2-start_time2}")
-    # print(f"Red JM -bw:   {time.time()-start_time2_2}")
     extime_matrix = time.time() - start_time
     
     # print("fom - dual:   " + str(extime_solve_FOM/(extime_solve_FOM+extime_iPOD+extime_matrix))+ ": " + str(extime_solve_FOM))
