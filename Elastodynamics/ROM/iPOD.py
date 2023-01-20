@@ -22,7 +22,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content,bunc
             POD, S, _ = scipy.linalg.svd(bunch, full_matrices=False)
             r = 0
             # np.shape(S_k)[0])):
-            while ((np.dot(S[0:r], S[0:r]) / total_energy <= energy_content) and (r <= bunch_size)):
+            while ((np.dot(S[0:r], S[0:r]) <= energy_content * total_energy) and (r < np.shape(S)[0])):   # but total_energy to rhs to avoid dividing by 0
                 r += 1
                 # print(r)
             singular_values = S[0:r]
@@ -50,8 +50,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content,bunc
             # Q_q, _ = scipy.linalg.qr(Q, mode='economic')
 
             r = 0# col_POD + 1 #0
-            while ((np.dot(S_k[0:r], S_k[0:r]) / total_energy <=
-                   energy_content) and (r < np.shape(S_k)[0])):
+            while ((np.dot(S_k[0:r], S_k[0:r]) <= energy_content * total_energy) and (r < np.shape(S_k)[0])):   # but total_energy to rhs to avoid dividing by 0
                 r += 1
                 # print(r)
 
