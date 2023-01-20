@@ -38,38 +38,21 @@ ENERGY_PRIMAL = {"displacement": 0.99999999, \
 n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretization(OUTPUT_PATH + cycle)
 
 # %% Reading in matricies and rhs without bc
-# matrix_no_bc, rhs_no_bc, dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH, OUTPUT_PATH_DUAL, cycle)
 matrix_no_bc, rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
 dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
 # %% Enforcing BC to primal und dual systems 
-# primal_matrix, primal_system_rhs, dual_matrix, dual_system_rhs = apply_boundary_conditions(matrix_no_bc, rhs_no_bc, dual_matrix_no_bc, dual_rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
 primal_matrix, primal_system_rhs = apply_boundary_conditions(matrix_no_bc, rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
 dual_matrix, dual_system_rhs = apply_boundary_conditions(dual_matrix_no_bc, dual_rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
 
 # %% read in IC
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 
-# %% Definition for dofs variables and slab properties
-
-# find the index for coordinates (6,0.5,0)
-
-# ordering the quardature points on slab wrt time
-#for i in range(slab_properties["n_total"]):
-    
-
-
-# time_step_size = list_coordinates_t[0][slab_properties["ordering"][1]]-list_coordinates_t[0][slab_properties["ordering"][0]]
-# solution_times = [list_coordinates_t[0][0]]
-# for i in range(slab_properties["n_total"]):
-#     for j in (slab_properties["ordering"][1:]-1):
-#         solution_times.append(list_coordinates_t[i][j])
-# ------------
-    
+# %% Reorder matrices and vectors
+# reorder matricies
 matrix_no_bc = reorder_matrix(matrix_no_bc, slab_properties, n_dofs)
 dual_matrix_no_bc = reorder_matrix(dual_matrix_no_bc, slab_properties, n_dofs)
 primal_matrix = reorder_matrix(primal_matrix, slab_properties, n_dofs)
 dual_matrix = reorder_matrix(dual_matrix, slab_properties, n_dofs)
-
 
 
 # reorder vectors
@@ -79,7 +62,7 @@ for j in range(slab_properties["n_total"]):
     primal_system_rhs[j] = reorder_vector(primal_system_rhs[j], slab_properties, n_dofs)
     dual_system_rhs[j] = reorder_vector(dual_system_rhs[j], slab_properties, n_dofs)
         
-# %% Definition sub system 
+# %% Definition of submatricies
 
 # PRIMAL 
 # --------------    
@@ -89,6 +72,13 @@ for j in range(slab_properties["n_total"]):
 #  C  |    D        ...
 #     |             x_n
 # --------------
+
+# primal problem matricies
+C = matrix_no_bc[n_dofs["time_step"]:, :n_dofs["time_step"]]
+D = matrix_no_bc[n_dofs["time_step"]:, n_dofs["time_step"]:]
+
+C_wbc = primal_matrix[n_dofs["time_step"]:, :n_dofs["time_step"]]
+D_wbc = primal_matrix[n_dofs["time_step"]:, n_dofs["time_step"]:]
 
 
 # Dual 
@@ -100,24 +90,12 @@ for j in range(slab_properties["n_total"]):
 #    ~   |  ~        z_n
 # --------------
 
-# DEAL with dumb deal.ii ordering of time_steps
-        
 # dual problem matricies
 A = dual_matrix_no_bc[:-n_dofs["time_step"], :-n_dofs["time_step"]]
 B = dual_matrix_no_bc[:-n_dofs["time_step"], -n_dofs["time_step"]:]
 
 A_wbc = dual_matrix[:-n_dofs["time_step"], :-n_dofs["time_step"]]
 B_wbc = dual_matrix[:-n_dofs["time_step"], -n_dofs["time_step"]:]
-
-
-# primal problem matricies
-C = matrix_no_bc[n_dofs["time_step"]:, :n_dofs["time_step"]]
-D = matrix_no_bc[n_dofs["time_step"]:, n_dofs["time_step"]:]
-
-C_wbc = primal_matrix[n_dofs["time_step"]:, :n_dofs["time_step"]]
-D_wbc = primal_matrix[n_dofs["time_step"]:, n_dofs["time_step"]:]
-
-
 
 print(f"A.shape = {A.shape}")
 print(f"B.shape = {B.shape}")
@@ -132,7 +110,6 @@ start_execution = time.time()
 primal_solutions = {"value": [initial_solution], "time": [0.]}
 
 for i in range(slab_properties["n_total"]):
-    # creating primal rhs and applying BC to it
     primal_solutions = solve_primal_FOM_step(primal_solutions, D_wbc, C_wbc, primal_system_rhs[i], slab_properties, n_dofs, i)
 
 end_execution = time.time()
@@ -221,7 +198,7 @@ for i in range(slab_properties["n_total"]):
     dual_solutions_slab["time"].append(slab_properties["time_points"][i])
 
 
-# %% Definition ROM ingredients
+# %% Definition and initialization of ROM ingredients
 
 bunch_size = 1  # len(primal_solutions)  # 1
 
@@ -285,8 +262,6 @@ print(pod_basis_dual["velocity"].shape[1])
 # needed for dual
 # A_reduced = reduce_matrix(A, pod_basis_dual, pod_basis_dual)
 # B_reduced = reduce_matrix(B, pod_basis_dual, pod_basis_dual)
-# J_1_reduced = reduce_matrix(J_1, pod_basis_dual, pod_basis)
-# J_2_reduced = reduce_matrix(J_1, pod_basis_dual, pod_basis)
 # needed for primal
 C_reduced = reduce_matrix(C, pod_basis, pod_basis)
 D_reduced = reduce_matrix(D, pod_basis, pod_basis)
@@ -414,45 +389,14 @@ for i in range(slab_properties["n_total"]):
 
 J_r_t = np.empty([slab_properties["n_total"], 1])
 J_h_t = np.empty([slab_properties["n_total"], 1])   
-# TODO: is this correct?
+# TODO: is this correct? Yes, julian it is correct ;)
 for i in range(slab_properties["n_total"]):
-    
-    # tmp_dual_rhs = []
-    # for j in slab_properties["ordering"]:
-    #     tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-    
     J_r_t[i] = projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
     J_h_t[i] = primal_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
-    # for j in range(n_dofs["solperstep"]+1):
-    #    J_r_t[i] += projected_reduced_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
-
-# J_h_t = np.empty([slab_properties["n_total"], 1])      
-        
-# # TODO: Is the computation of J_h_t correct?
-# for i, dual_rhs in enumerate(dual_rhs_no_bc):
-    
-#     tmp_dual_rhs = []
-#     for j in slab_properties["ordering"]:
-#         tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-    
-#     J_h_t[i] = 0.
-#     for j in range(n_dofs["solperstep"]+1):
-#        J_h_t[i] += primal_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
 
 
+# %% Error evaluations
 
-
-# for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
-#     save_vtk(SAVE_PATH + f"/primal_solution{i:05}.vtk",
-#              {"displacement": dof_matrix.dot(projected_reduced_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
-
-# for i, projected_reduced_dual_solution in enumerate(projected_reduced_dual_solutions):
-#     save_vtk(OUTPUT_PATH + cycle + f"/dual_solution{i:05}.vtk",
-#              {"displacement": dof_matrix.dot(projected_reduced_dual_solution[0:n_dofs["space"]]), "velocity":    dof_matrix.dot(projected_reduced_dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=(list_coordinates_t[i-1][1] if i > 0 else 0.))
-
-    # save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i:05}.vtk",
-# 	save_vtk(OUTPUT_PATH + cycle + f"/py_solution{i+1:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), \
-#             "velocity": dof_matrix.dot(primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i+1, time=list_coordinates_t[i][1])
 error_primal_displacement = []
 # error_dual_displacement = []
 error_primal_velo = []
