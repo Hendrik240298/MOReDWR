@@ -9,13 +9,18 @@ import os
 import time
 import sys
 from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
+from auxiliaries import save_vtk
 #import imageio
 
 PLOTTING = False
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
+OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
+
+LOAD_SOLUTION = True
+
 # SAVE_PATH = cycle + "/output_ROM/"
 
 #"../../FOM/slabwise/output_" + CASE + "/dim=1/"
@@ -32,47 +37,8 @@ if not os.path.exists(SAVE_PATH):
 if not os.path.exists(SAVE_PATH + "movie/"):
     os.makedirs(SAVE_PATH + "movie/")
 
-# %% Vtk plotting
-def save_vtk(file_name, solution, grid, cycle=None, time=None):
-    lines = [
-        "# vtk DataFile Version 3.0",
-        "PDE SOLUTION",
-        "ASCII",
-        "DATASET UNSTRUCTURED_GRID",
-        ""
-    ]
 
-    if (cycle != None or time != None):
-        lines.append(f"FIELD FieldData {(cycle != None) + (time != None)}")
-        if (cycle != None):
-            lines.append("CYCLE 1 1 int")
-            lines.append(str(cycle))
-        if (time != None):
-            lines.append("TIME 1 1 double")
-            lines.append(str((time)))
-
-    lines += grid
-
-    for key, value in solution.items():
-        lines.append(f"SCALARS {key}_x double 1")
-        lines.append("LOOKUP_TABLE default")
-        lines.append(" ".join(np.round(value[0::3], decimals=7).astype(
-            np.double).astype(str)) + " ")
-
-        lines.append(f"SCALARS {key}_y double 1")
-        lines.append("LOOKUP_TABLE default")
-        lines.append(" ".join(np.round(value[1::3], decimals=7).astype(
-            np.double).astype(str)) + " ")
-
-        lines.append(f"SCALARS {key}_z double 1")
-        lines.append("LOOKUP_TABLE default")
-        lines.append(" ".join(np.round(value[2::3], decimals=7).astype(
-            np.double).astype(str)) + " ")
-
-    with open(file_name, "w") as file:
-        file.write("\n".join(lines))
-
-
+##
 # creating grid and dof_matrix for vtk output
 grid = []
 with open(OUTPUT_PATH + cycle + "/solution00000.vtk", "r") as f:
@@ -98,6 +64,10 @@ print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 matrix_no_bc = scipy.sparse.csr_matrix(
     (data, (row.astype(int), column.astype(int))))
 
+[data, row, column] = np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/dual_matrix_no_bc.txt")
+dual_matrix_no_bc = scipy.sparse.csr_matrix(
+    (data, (row.astype(int), column.astype(int))))
+
 # %% Reading in rhs
 
 rhs_no_bc = []
@@ -106,8 +76,8 @@ for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle)
     rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
 
 dual_rhs_no_bc = []
-for f in sorted([f for f in os.listdir(OUTPUT_PATH + cycle) if "dual_rhs_no_bc" in f]):
-    dual_rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + cycle + "/" + f))
+for f in sorted([f for f in os.listdir(OUTPUT_PATH_DUAL + cycle) if "dual_rhs_no_bc" in f]):
+    dual_rhs_no_bc.append(np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/" + f))
 
 
 # %% Enforcing BC to primal matrix
@@ -130,8 +100,8 @@ for rhs_no_bc_sample in rhs_no_bc:
         #         rhs_no_bc[in_bc][col] = 1.
         
 # %% Enforcing BC to dual matrix
-dual_matrix_no_bc = matrix_no_bc.tocsr().T
-dual_matrix =  matrix_no_bc.tocsr().T
+# dual_matrix_no_bc = matrix_no_bc.tocsr().T
+dual_matrix =  dual_matrix_no_bc
 dual_system_rhs = []
 for row in boundary_ids:
     for col in dual_matrix.getrow(row).nonzero()[1]:
@@ -293,7 +263,7 @@ C_wbc = primal_matrix[n_dofs["time_step"]:, :n_dofs["time_step"]]
 # need this for primal and dual problem
 D_wbc = primal_matrix[n_dofs["time_step"]:, n_dofs["time_step"]:]
 
-print(f"test daul matrix: {np.linalg.norm(A.toarray() - matrix_no_bc[:-n_dofs['time_step'], :-n_dofs['time_step']].T.toarray())}")
+# print(f"test daul matrix: {np.linalg.norm(A.toarray() - matrix_no_bc[:-n_dofs['time_step'], :-n_dofs['time_step']].T.toarray())}")
 
 
 print(f"A.shape = {A.shape}")
@@ -309,21 +279,22 @@ start_execution = time.time()
 last_primal_solution = np.zeros((n_dofs["time_step"],))    
 
 last_primal_solution[:] = initial_solution[:]
+
 primal_solutions = [initial_solution[:]]
+
 
 for i in range(n_slabs):
     # creating primal rhs and applying BC to it
+          
     primal_rhs = primal_system_rhs[i][n_dofs["time_step"]:].copy() - C_wbc.dot(last_primal_solution)
     primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
-    
-    # for j in (ordering_on_slab[1:]-1): #[l-1 for l in ordering_on_slab[1:]]: #range(n_dofs["solperstep"]):
-    #     primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
         
     for j in range(time_steps_on_slab):
         primal_solutions.append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-        
-    last_primal_solution = primal_solutions[-1]
+    
+    last_primal_solution = primal_solutions[-1]  
 end_execution = time.time()
+
 execution_time_FOM = end_execution - start_execution
 
 print("Primal FOM time:   " + str(execution_time_FOM))
@@ -332,6 +303,10 @@ print("n_dofs[space] =", n_dofs["space"])
 for i, (t, primal_solution) in enumerate(zip(solution_times, primal_solutions)):
     save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
         primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=t)
+
+primal_solutions_slab = []
+for i in range(n_slabs):
+    primal_solutions_slab.append(np.hstack( primal_solutions[i*(n_dofs['solperstep']): (i+1)*(n_dofs['solperstep'])+1]).T)
 
 """
 # for i, primal_solution in enumerate(primal_solutions):
@@ -373,24 +348,35 @@ for i in range(n_slabs):
 start_execution = time.time()
 last_dual_solution = np.zeros((n_dofs["time_step"],))
 
-dual_solutions = [np.zeros((n_dofs["time_step"],))]
 
 # for debugging:
 # dual_system_rhs = primal_system_rhs[::-1] 
+if not LOAD_SOLUTION:
+    dual_solutions = [np.zeros((n_dofs["time_step"],))]
 
-for i in list(range(n_slabs))[::-1]:
-    dual_rhs = dual_system_rhs[i][:-n_dofs["time_step"]].copy() - B_wbc.dot(last_dual_solution)
-    dual_solution = scipy.sparse.linalg.spsolve(A_wbc, dual_rhs)
+    for i in list(range(n_slabs))[::-1]:
+        dual_rhs = dual_system_rhs[i][:-n_dofs["time_step"]].copy() - B_wbc.dot(last_dual_solution)
+        dual_solution = scipy.sparse.linalg.spsolve(A_wbc, dual_rhs)
     
-    for j in list(range(time_steps_on_slab))[::-1]:
-        dual_solutions.append(dual_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+        for j in list(range(time_steps_on_slab))[::-1]:
+            dual_solutions.append(dual_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
 
-    last_dual_solution = dual_solutions[-1]
+        last_dual_solution = dual_solutions[-1]
+
+else:
+    dual_solutions = []
+    for f in sorted([f for f in os.listdir(OUTPUT_PATH_DUAL + cycle) if "dual_solution" in f]):
+        tmp_sol = np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/" + f)
+        for j in ordering_on_slab[ordering_on_slab < n_dofs["solperstep"]]:
+            dual_solutions.append(tmp_sol[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+    # final condition = 0
+    dual_solutions.append(np.zeros((n_dofs["time_step"],)))
+        
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
 print("Dual FOM time:   " + str(execution_time_FOM))
 
-dual_solutions = dual_solutions[::-1]
+
 
 for i, (t, dual_solution) in enumerate(zip(solution_times, dual_solutions)):
     save_vtk(SAVE_PATH + f"/py_dual_solution{i:05}.vtk", {"displacement": dof_matrix.dot(dual_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
@@ -398,8 +384,6 @@ for i, (t, dual_solution) in enumerate(zip(solution_times, dual_solutions)):
 
 dual_solutions_slab = []
 for i in range(n_slabs):
-    if i < 10 or i>1590:
-        print(f"{i}: {i*(n_dofs['solperstep'])} - {(i+1)*(n_dofs['solperstep'])+1}  --> {len(dual_solutions[i*(n_dofs['solperstep']) : (i+1)*(n_dofs['solperstep'])+1])} ")
     dual_solutions_slab.append(np.hstack( dual_solutions[i*(n_dofs['solperstep']): (i+1)*(n_dofs['solperstep'])+1]).T)
 
 # for i, dual_solution in enumerate(dual_solutions):
@@ -414,34 +398,22 @@ for i in range(n_slabs):
 
 # %% Cost functional
 
-J_h_t = np.empty([n_slabs, 1])      
-        
-# TODO: Is the computation of J_h_t correct?
-for i, dual_rhs in enumerate(dual_rhs_no_bc):
-    
-    tmp_dual_rhs = []
-    for j in ordering_on_slab:
-        tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-    
-    J_h_t[i] = 0.
-    for j in range(n_dofs["solperstep"]+1):
-       J_h_t[i] += primal_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
 
 # J["u_h"] = np.sum(J_h_t)
 
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs, 1),
-          J_h_t, color='r', label="$u_h$")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#           J_r_t, '--', c='#1f77b4', label="$u_N$")
-plt.grid()
-plt.legend()
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
-plt.xlim([0, n_slabs])
-#plt.title("temporal evaluation of cost funtional")
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, n_slabs, 1),
+#           J_h_t, color='r', label="$u_h$")
+# # plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+# #           J_r_t, '--', c='#1f77b4', label="$u_N$")
+# plt.grid()
+# plt.legend()
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.xlabel('$t \; [$s$]$')
+# plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
+# plt.xlim([0, n_slabs])
+# #plt.title("temporal evaluation of cost funtional")
 
 plt.show()
 
@@ -543,6 +515,7 @@ projected_reduced_solutions_before_enrichment = []
 # dual_residual.append(0)
 
 temporal_interval_error = []
+temporal_interval_error_shorti = []
 temporal_interval_error_incidactor = []
 temporal_interval_error_relative = []
 
@@ -575,15 +548,24 @@ for i in range(n_slabs):
     # TODO: are the reduced_solutions in the right order?
     for j in range(time_steps_on_slab):
         projected_reduced_solutions.append(project_vector(reduced_solution[j*n_dofs["reduced_primal"]:(j+1)*n_dofs["reduced_primal"]],pod_basis))
+        # projected_reduced_solutions.append(primal_solutions_slab[i][(j+1)*n_dofs["time_step"]:(j+2)*n_dofs["time_step"]])    
 
     # build vectors for estimator --> on large matrix
-    projected_reduced_solutions_vec = np.hstack(projected_reduced_solutions[-time_steps_on_slab-1:])
+    projected_reduced_solutions_vec_shorti = np.hstack(projected_reduced_solutions[-time_steps_on_slab:])
+    projected_reduced_solutions_vec_shorti_old = projected_reduced_solutions[-time_steps_on_slab-1]
+    residual_shorti = - D.dot(projected_reduced_solutions_vec_shorti) - C.dot(projected_reduced_solutions_vec_shorti_old) \
+                    + rhs_no_bc[i][n_dofs["time_step"]:]
     
+    temporal_interval_error_shorti.append(np.abs(np.dot( residual_shorti, dual_solutions_slab[i][n_dofs["time_step"]:] ))) 
+    
+    
+    projected_reduced_solutions_vec = np.hstack(projected_reduced_solutions[-time_steps_on_slab-1:])
     residual = - matrix_no_bc.dot(projected_reduced_solutions_vec) + rhs_no_bc[i].copy()
+    residual[:n_dofs["time_step"]] = 0.
     # dual_solution = np.hstack(dual_solutions[time_steps_on_slab*i:time_steps_on_slab*(i+1)+1])
     
     temporal_interval_error.append(np.abs(np.dot(dual_solutions_slab[i], residual)))
-    # eta_rel = eta/(J(u_r)+eta)
+    # eta_rel = eta/(eta + J(u_r)) ~ eta/J(u_h)
     temporal_interval_error_relative.append(temporal_interval_error[-1] / \
                             np.abs(temporal_interval_error[-1] + np.dot(projected_reduced_solutions_vec,dual_rhs_no_bc[i])))
     # error indicator
@@ -623,24 +605,6 @@ for i in range(n_slabs):
     
     last_projected_reduced_solution = projected_reduced_solutions[-1]
 
-
-
-# %% Computing Cost functional
-
-J_r_t = np.empty([n_slabs, 1])
-
-# TODO: is this correct?
-for i, dual_rhs in enumerate(dual_rhs_no_bc):
-    
-    tmp_dual_rhs = []
-    for j in ordering_on_slab:
-        tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-    
-    J_r_t[i] = 0.
-    for j in range(n_dofs["solperstep"]+1):
-       J_r_t[i] += projected_reduced_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
-
-
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
 print("ROM time:        " + str(execution_time_ROM))
@@ -648,6 +612,42 @@ print("ROM time:        " + str(execution_time_ROM))
 for i, (t, primal_solution) in enumerate(zip(solution_times, projected_reduced_solutions)):
     save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
         primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=t)
+
+projected_reduced_solutions_slab = []
+for i in range(n_slabs):
+    projected_reduced_solutions_slab.append(np.hstack( projected_reduced_solutions[i*(n_dofs['solperstep']): (i+1)*(n_dofs['solperstep'])+1]).T)
+
+# %% Computing Cost functional
+
+J_r_t = np.empty([n_slabs, 1])
+J_h_t = np.empty([n_slabs, 1])   
+# TODO: is this correct?
+for i in range(n_slabs):
+    
+    # tmp_dual_rhs = []
+    # for j in ordering_on_slab:
+    #     tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+    
+    J_r_t[i] = projected_reduced_solutions_slab[i].dot(dual_rhs_no_bc[i])
+    J_h_t[i] = primal_solutions_slab[i].dot(dual_rhs_no_bc[i])
+    # for j in range(n_dofs["solperstep"]+1):
+    #    J_r_t[i] += projected_reduced_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
+
+# J_h_t = np.empty([n_slabs, 1])      
+        
+# # TODO: Is the computation of J_h_t correct?
+# for i, dual_rhs in enumerate(dual_rhs_no_bc):
+    
+#     tmp_dual_rhs = []
+#     for j in ordering_on_slab:
+#         tmp_dual_rhs.append(dual_rhs[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+    
+#     J_h_t[i] = 0.
+#     for j in range(n_dofs["solperstep"]+1):
+#        J_h_t[i] += primal_solutions[i*n_dofs["solperstep"]+j].dot(tmp_dual_rhs[j])
+
+
+
 
 # for i, projected_reduced_solution in enumerate(projected_reduced_solutions):
 #     save_vtk(SAVE_PATH + f"/primal_solution{i:05}.vtk",
@@ -687,61 +687,61 @@ for i in range(n_slabs+1):
 
 # %% Plotting
 
-time_step_size = 40.0 / (n_dofs["time"] / 2)
+time_step_size = 40.0 / (n_slabs)
 
-# plot sigs
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, pod_basis["displacement"].shape[1]),
-         singular_values["displacement"], label="displacement")
-plt.plot(np.arange(0, pod_basis["velocity"].shape[1]),
-         singular_values["velocity"], label="velocity")
-# plt.plot(np.arange(0, pod_basis_dual["displacement"].shape[1]),
-#          singular_values_dual["displacement"], label="displacement_dual")
-# plt.plot(np.arange(0, pod_basis_dual["velocity"].shape[1]),
-#          singular_values_dual["velocity"], label="velocity_dual")
-plt.grid()
-plt.yscale('log')
-plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.show()
-
-
-# plot norm of displace,mnet
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs+1),
-         error_primal_displacement, label="primal")
-# plt.plot(np.arange(0, n_slabs+1),
-#          error_dual_displacement, label="dual")
-plt.yscale('log')
-plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.show()
-
-# plot norm of velocity
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs+1),
-         error_primal_velo, label="norm error displacement")
-# plt.plot(np.arange(0, n_slabs+1),
-#          error_dual_velo, label="dual")
+# # plot sigs
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, pod_basis["displacement"].shape[1]),
+#          singular_values["displacement"], label="displacement")
+# plt.plot(np.arange(0, pod_basis["velocity"].shape[1]),
+#          singular_values["velocity"], label="velocity")
+# # plt.plot(np.arange(0, pod_basis_dual["displacement"].shape[1]),
+# #          singular_values_dual["displacement"], label="displacement_dual")
+# # plt.plot(np.arange(0, pod_basis_dual["velocity"].shape[1]),
+# #          singular_values_dual["velocity"], label="velocity_dual")
+# plt.grid()
 # plt.yscale('log')
-plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.show()
+# plt.legend()
+# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.show()
 
-# plot norm of velocity
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs+1),
-         error_primal_velo, label="norm error velocity")
+
+# # plot norm of displace,mnet
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
 # plt.plot(np.arange(0, n_slabs+1),
-#          error_dual_velo, label="dual")
+#          error_primal_displacement, label="primal")
+# # plt.plot(np.arange(0, n_slabs+1),
+# #          error_dual_displacement, label="dual")
 # plt.yscale('log')
-plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.show()
+# plt.legend()
+# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.show()
+
+# # plot norm of velocity
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, n_slabs+1),
+#          error_primal_velo, label="norm error displacement")
+# # plt.plot(np.arange(0, n_slabs+1),
+# #          error_dual_velo, label="dual")
+# # plt.yscale('log')
+# plt.legend()
+# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.show()
+
+# # plot norm of velocity
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(np.arange(0, n_slabs+1),
+#          error_primal_velo, label="norm error velocity")
+# # plt.plot(np.arange(0, n_slabs+1),
+# #          error_dual_velo, label="dual")
+# # plt.yscale('log')
+# plt.legend()
+# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.show()
 
 
 
@@ -761,17 +761,17 @@ plt.show()
 
 
 
-# plot rel error pointwise displacement at (6,0.5,0)
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs+1),
-         error_primal_displacement_pointwise, label="pw displacement")
+# # plot rel error pointwise displacement at (6,0.5,0)
+# plt.rc('text', usetex=True)
+# # plt.rcParams["figure.figsize"] = (10,2)
 # plt.plot(np.arange(0, n_slabs+1),
-#          error_dual_displacement, label="dual")
-plt.yscale('log')
-plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.show()
+#          error_primal_displacement_pointwise, label="pw displacement")
+# # plt.plot(np.arange(0, n_slabs+1),
+# #          error_dual_displacement, label="dual")
+# plt.yscale('log')
+# plt.legend()
+# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+# plt.show()
 
 
 
@@ -797,6 +797,8 @@ plt.show()
 plt.rcParams["figure.figsize"] = (10,2)
 plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
           np.array(temporal_interval_error), c='#1f77b4', label="estimate")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          np.array(temporal_interval_error_shorti), c='black', label="estimate")
 plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
           np.abs(J_h_t-J_r_t), color='r', label="error")
 plt.grid()
