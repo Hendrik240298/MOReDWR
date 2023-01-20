@@ -764,7 +764,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
 	}
 	
-	std::ofstream rhs_no_bc_out(output_dir + "rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
+	std::ofstream rhs_no_bc_out(output_dir + "primal_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
 	system_rhs.print(rhs_no_bc_out, /*precision*/16);
 	
 	std::ofstream dual_rhs_no_bc_out(output_dir + "dual_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");
@@ -1499,7 +1499,7 @@ int main() {
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
-				r.push_back(1);
+				r.push_back(2);
 				t.push_back((i+1)*dt);
 		}
 
