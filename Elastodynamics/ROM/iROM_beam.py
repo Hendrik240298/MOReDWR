@@ -134,33 +134,6 @@ for i in range(slab_properties["n_total"]):
     primal_solutions_slab["value"].append(np.hstack( primal_solutions["value"][i*(n_dofs['solperstep']): (i+1)*(n_dofs['solperstep'])+1]).T)
     primal_solutions_slab["time"].append(slab_properties["time_points"][i])
 
-# %%
-
-# %% dual FOM desperation solve
-
-# start_execution = time.time()
-# last_dual_solution = np.zeros((n_dofs["time_step"],))
-
-# dual_solutions = [np.zeros((n_dofs["time_step"],))]
-
-# dual_matrix_full_solve = dual_matrix.copy()
-
-# for row in range(n_dofs["time_step"]):
-#     for col in dual_matrix_full_solve.getrow(row).nonzero()[1]:
-#         dual_matrix_full_solve[n_dofs['solperstep']*n_dofs["time_step"]+row,col] = 1. if n_dofs['solperstep']*n_dofs["time_step"]+row == col else 0.
-
-# print("assembled full dual matrix")
-
-# for i in list(range(slab_properties["n_total"]))[::-1]:
-    
-#     dual_rhs = np.hstack((dual_system_rhs[i][:-n_dofs["time_step"]].copy(),last_dual_solution))
-#     dual_solution = scipy.sparse.linalg.spsolve(dual_matrix_full_solve, dual_rhs)
-    
-#     for j in list(range(slab_properties["n_time_unknowns"]))[::-1]:
-#         dual_solutions.append(dual_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-
-#     last_dual_solution = dual_solutions[-1]
-# end_execution = time.time()
 
 # %% dual FOM solve
 start_execution = time.time()
