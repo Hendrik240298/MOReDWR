@@ -49,6 +49,25 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
     with open(file_name, "w") as file:
         file.write("\n".join(lines))
 
+# %% save solutions to txt in scientific notation
+def save_solution_txt(file_name, solutions):
+    # save solution to filename in txt format
+    for i, solution in enumerate(solutions["value"]):
+         np.savetxt(file_name + f"{i:05}.txt", solution, fmt="%.16e")  
+    np.savetxt(file_name + "_time.txt", solutions["time"], fmt="%.16e")   
+     
+
+# %% read in solution that is saved in save_solution_txt
+def load_solution_txt(file_name):
+
+    solutions = {}
+    solutions["time"] = np.loadtxt(file_name + "_time.txt")
+    solutions["value"] = []
+    for i in range(len(solutions["time"])):
+        solutions["value"].append(np.loadtxt(file_name + f"{i:05}.txt"))
+    # read in solution from filename in txt format
+    return solutions
+
 #%% read_in_discretization
 def read_in_discretization(PATH): 
     # creating grid for vtk output
@@ -211,4 +230,42 @@ def solve_primal_ROM_step(projected_reduced_solutions, reduced_solution_old, D_r
 
     return projected_reduced_solutions, reduced_solution_old
     
-    
+# %% compute error estimate
+
+def error_estimator(projected_reduced_solutions, dual_projected_reduced_solutions, matrix_no_bc, rhs_no_bc, slab_properties):
+
+    projected_slab = { "value": [], "time": [] }
+    dual_projected_slab = { "value": [], "time": [] }
+
+    projected_slab["value"] = np.hstack(projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1:])
+    projected_slab["time"] = np.hstack(projected_reduced_solutions["time"][-slab_properties["n_time_unknowns"]-1:])
+
+
+    # find argument where time of dual_projected_reduced_solutions is equal to time of projected_slab
+    index_of_dual = []
+    for j in range(len(projected_slab["time"])):
+        for i in range(len(dual_projected_reduced_solutions["time"])):
+            if dual_projected_reduced_solutions["time"][i] == projected_slab["time"][j]:
+                index_of_dual.append(i)
+                break
+
+    # print(index_of_dual)
+
+ 
+
+    # hstack last entries of projected_reduced_solutions to obtain slab
+    dual_projected_slab["value"] = np.hstack([dual_projected_reduced_solutions["value"][i] for i in index_of_dual])
+
+    # hstack i-th last entries of projected_reduced_solutions["time"] to obtain slab
+    dual_projected_slab["time"] = np.hstack([dual_projected_reduced_solutions["time"][i] for i in index_of_dual])
+
+    # print shape of matrix_no_bc, projected_slab["value"] and rhs_no_bc
+    # print(matrix_no_bc.shape)
+    # print(projected_slab["value"].shape)
+    # print(rhs_no_bc.shape)
+
+    residual_slab = - matrix_no_bc.dot(projected_slab["value"]) + rhs_no_bc
+
+    error_estimate = np.abs(np.dot(dual_projected_slab["value"], residual_slab))
+
+    return error_estimate    
