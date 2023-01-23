@@ -269,3 +269,23 @@ def error_estimator(projected_reduced_solutions, dual_projected_reduced_solution
     error_estimate = np.abs(np.dot(dual_projected_slab["value"], residual_slab))
 
     return error_estimate    
+
+
+def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_properties,i):
+
+    time_points = slab_properties["time_points"][i]
+
+    # find arguments where time of projected_reduced_solutions is equal to time_points
+    index_of_primal = []
+    for j in range(len(time_points)):
+        # for k in range(len(projected_reduced_solutions["time"])):
+        for k in list(range(len(projected_reduced_solutions["time"])))[::-1]:
+            if projected_reduced_solutions["time"][k] == time_points[j]:
+                index_of_primal.append(k)
+                break
+
+    primal_projected_slab = np.hstack([projected_reduced_solutions["value"][i] for i in index_of_primal])
+
+    cost_functional = np.dot(primal_projected_slab, dual_rhs_no_bc)
+
+    return cost_functional

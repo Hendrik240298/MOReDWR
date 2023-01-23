@@ -9,7 +9,7 @@ import os
 import time
 import sys
 from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
-from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_in_discretization,solve_primal_FOM_step, solve_dual_FOM_step, solve_primal_ROM_step, reorder_matrix,reorder_vector,error_estimator,save_solution_txt, load_solution_txt
+from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_in_discretization,solve_primal_FOM_step, solve_dual_FOM_step, solve_primal_ROM_step, reorder_matrix,reorder_vector,error_estimator,save_solution_txt, load_solution_txt, evaluate_cost_functional
 #import imageio
 
 PLOTTING = False
@@ -291,24 +291,8 @@ for i in range(slab_properties["n_total"]):
 
     temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
 
-
-    # build vectors for estimator --> on large matrix
-    # projected_reduced_solutions_vec_shorti = np.hstack(projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]:])
-    # projected_reduced_solutions_vec_shorti_old = projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1]
-    # residual_shorti = - D.dot(projected_reduced_solutions_vec_shorti) - C.dot(projected_reduced_solutions_vec_shorti_old) \
-    #                 + rhs_no_bc[i][n_dofs["time_step"]:]
-    
-    # temporal_interval_error_shorti.append(np.abs(np.dot( residual_shorti, dual_solutions_slab["value"][i][n_dofs["time_step"]:] ))) 
-       
-    projected_reduced_solutions_vec = np.hstack(projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1:])
-    # residual = - matrix_no_bc.dot(projected_reduced_solutions_vec) + rhs_no_bc[i].copy()
-    # residual[:n_dofs["time_step"]] = 0.
-    # dual_solution = np.hstack(dual_solutions[slab_properties["n_time_unknowns"]*i:slab_properties["n_time_unknowns"]*(i+1)+1])
-    
-    # temporal_interval_error.append(np.abs(np.dot(dual_solutions_slab["value"][i], residual)))
-    # eta_rel = eta/(eta + J(u_r)) ~ eta/J(u_h)
     temporal_interval_error_relative.append(temporal_interval_error[-1] / \
-                            np.abs(temporal_interval_error[-1] + np.dot(projected_reduced_solutions_vec,dual_rhs_no_bc[i].copy())))
+                            np.abs(temporal_interval_error[-1] + evaluate_cost_functional(projected_reduced_solutions,dual_rhs_no_bc[i].copy(), slab_properties,i)))
 
     if temporal_interval_error_relative[-1] > tol_rel:
         print(f"{i}: {slab_properties['n_time_unknowns']*i} - {slab_properties['n_time_unknowns']*(i+1)}")
