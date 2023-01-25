@@ -115,10 +115,6 @@ def read_in_discretization(PATH):
     slab_properties["n_time_unknowns"] =  len(slab_properties["ordering"][1:])     # number of time steps with unknowns: e.g. in cg its len(ordering) -1 
     slab_properties["time_points"] = [list_coordinates_t[i][slab_properties["ordering"]] for i in range(slab_properties["n_total"])] # time points of each slab
     
-    # ordering_on_slab = 
-    # time_steps_on_slab = 
-    # time_on_slab = 
-    
     return n_dofs, slab_properties, index2measuredisp, dof_matrix, grid
 
 # %% read_in_LES
@@ -249,20 +245,11 @@ def error_estimator(projected_reduced_solutions, dual_projected_reduced_solution
                 index_of_dual.append(i)
                 break
 
-    # print(index_of_dual)
-
- 
-
     # hstack last entries of projected_reduced_solutions to obtain slab
     dual_projected_slab["value"] = np.hstack([dual_projected_reduced_solutions["value"][i] for i in index_of_dual])
 
     # hstack i-th last entries of projected_reduced_solutions["time"] to obtain slab
     dual_projected_slab["time"] = np.hstack([dual_projected_reduced_solutions["time"][i] for i in index_of_dual])
-
-    # print shape of matrix_no_bc, projected_slab["value"] and rhs_no_bc
-    # print(matrix_no_bc.shape)
-    # print(projected_slab["value"].shape)
-    # print(rhs_no_bc.shape)
 
     residual_slab = - matrix_no_bc.dot(projected_slab["value"]) + rhs_no_bc
 
@@ -278,7 +265,6 @@ def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_p
     # find arguments where time of projected_reduced_solutions is equal to time_points
     index_of_primal = []
     for j in range(len(time_points)):
-        # for k in range(len(projected_reduced_solutions["time"])):
         for k in list(range(len(projected_reduced_solutions["time"])))[::-1]:
             if projected_reduced_solutions["time"][k] == time_points[j]:
                 index_of_primal.append(k)
