@@ -19,7 +19,12 @@ OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
-LOAD_SOLUTION = True
+LOAD_SOLUTION = False
+
+# if SAVE_PATH directory not exists create it
+if not os.path.exists(SAVE_PATH):
+    os.makedirs(SAVE_PATH)
+
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 
@@ -32,7 +37,11 @@ n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretiz
 
 # %% Reading in matricies and rhs without bc
 matrix_no_bc, rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
-dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+# dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+
+dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
+dual_matrix_no_bc = dual_matrix_no_bc.copy().T
+
 # %% Enforcing BC to primal und dual systems 
 primal_matrix, primal_system_rhs = apply_boundary_conditions(matrix_no_bc, rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
 dual_matrix, dual_system_rhs = apply_boundary_conditions(dual_matrix_no_bc, dual_rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
@@ -379,10 +388,6 @@ plt.legend()
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.show()
 
-
-
-
-
 # plot temporal evolution of cost functionals  s
 # plt.rc('text', usetex=True)
 # plt.rcParams["figure.figsize"] = (10,2)
@@ -415,7 +420,3 @@ plt.ylabel("$error$")
 plt.xlim([0, slab_properties["n_total"]*time_step_size])
 
 plt.show()
-
-
-
-# %%
