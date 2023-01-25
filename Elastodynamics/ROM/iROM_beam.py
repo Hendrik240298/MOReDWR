@@ -19,7 +19,7 @@ OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
-LOAD_SOLUTION = False
+LOAD_SOLUTION = True
 
 # if SAVE_PATH directory not exists create it
 if not os.path.exists(SAVE_PATH):
@@ -37,10 +37,69 @@ n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretiz
 
 # %% Reading in matricies and rhs without bc
 matrix_no_bc, rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
-# dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
 
-dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
-dual_matrix_no_bc = dual_matrix_no_bc.copy().T
+dual_matrix_no_bc_cpp, _ = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+
+# dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
+# dual_matrix_no_bc = dual_matrix_no_bc.copy().T
+
+# plt.spy(dual_matrix_no_bc_cpp-dual_matrix_no_bc)
+# plt.show()
+
+# matplotlib figure with 3 plots 
+
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+
+ax1.spy(dual_matrix_no_bc_cpp, precision=1e-14)
+ax1.set_title("Dual Matrix C++")
+
+ax2.spy(dual_matrix_no_bc, precision=1e-14)
+ax2.set_title("Dual Matrix Python")
+
+ax3.spy(matrix_no_bc, precision=1e-14)
+ax3.set_title("Primal Matrix")
+
+
+plt.show()
+
+#ax3.spy(dual_matrix_no_bc_cpp-dual_matrix_no_bc, precision=1e-14)
+#ax3.imshow((dual_matrix_no_bc_cpp-dual_matrix_no_bc).todense(), cmap="viridis", interpolation="none")
+# plot colorbar for ax3
+
+mat = np.abs((dual_matrix_no_bc_cpp-dual_matrix_no_bc).todense())
+# prepare x and y for scatter plot
+plot_list = []
+for rows,cols in zip(np.where(mat!=0)[0],np.where(mat!=0)[1]):
+    if (np.abs(mat[rows,cols]) > 1e-8):
+        plot_list.append([cols,rows,mat[rows,cols]])
+for i in range(3*702):
+    plot_list.append([i,351,1e-8])
+    plot_list.append([351,i,1e-8])
+    plot_list.append([i,351+350,1e-8])
+    plot_list.append([351+350,i,1e-8])
+    plot_list.append([i,351+2*350,1e-8])
+    plot_list.append([351+2*350,i,1e-8])
+plot_list = np.array(plot_list)
+
+# scatter plot with color bar, with rows on y axis
+plt.scatter(plot_list[:,0],plot_list[:,1],c=plot_list[:,2], s=1)
+
+cb = plt.colorbar()
+# cb colorbar logarithmic
+#cb.set_ticks([1e-7,1e-6,1e-5,1e-4,1e-3,1e-2])
+
+# full range for x and y axes
+plt.xlim(0,mat.shape[1])
+plt.ylim(0,mat.shape[0])
+# invert y axis to make it similar to imshow
+plt.gca().invert_yaxis()
+
+#ax3.set_title("Difference")
+
+plt.show()
+
+
 
 # %% Enforcing BC to primal und dual systems 
 primal_matrix, primal_system_rhs = apply_boundary_conditions(matrix_no_bc, rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
@@ -166,15 +225,18 @@ else:
     i = 0
     for f in sorted([f for f in os.listdir(OUTPUT_PATH_DUAL + cycle) if "dual_solution" in f]):
         tmp_sol = np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/" + f)
-        for j in range(slab_properties["n_time_unknowns"]):
+        time_counter = 0
+        for j in slab_properties["ordering"][:-1]: #[0,2]: #range(slab_properties["n_time_unknowns"])):
             dual_solutions["value"].append(tmp_sol[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-            dual_solutions["time"].append(slab_properties["time_points"][i][j])
+            dual_solutions["time"].append(slab_properties["time_points"][i][time_counter])
+            time_counter += 1
         i += 1
-        # for j in slab_properties["ordering"][slab_properties["ordering"] < n_dofs["solperstep"]]:
-        #     dual_solutions.append(tmp_sol[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-    # final condition = 0
+
     dual_solutions["value"].append(np.zeros((n_dofs["time_step"],)))
     dual_solutions["time"].append(slab_properties["time_points"][-1][-1])
+    # dual_solutions["time"].append(0.)
+
+    print("test")
     # dual_solutions.append(np.zeros((n_dofs["time_step"],)))
         
 end_execution = time.time()
