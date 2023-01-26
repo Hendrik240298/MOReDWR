@@ -319,6 +319,7 @@ private:
 	// space-time
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
+	SparseMatrix<double> mass_matrix;
 	SparseDirectUMFPACK A_direct;
 	Vector<double> solution;
 	Vector<double> initial_solution; // u(0) or u(t_0)
@@ -587,6 +588,7 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	  sparsity_pattern.print_svg(out_sparsity);
 	  
 	  system_matrix.reinit(sparsity_pattern);
+	  mass_matrix.reinit(sparsity_pattern);
 	}
 	
 	solution.reinit(space_dof_handler.n_dofs() * slab->time_dof_handler.n_dofs());
@@ -618,6 +620,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	
 	// local contributions on space-time cell
 	FullMatrix<double> cell_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
+	FullMatrix<double> cell_mass_matrix(space_dofs_per_cell * time_dofs_per_cell, space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	Vector<double> cell_dual_rhs(space_dofs_per_cell * time_dofs_per_cell);
 	std::vector<types::global_dof_index> local_dof_indices(space_dofs_per_cell * time_dofs_per_cell);
@@ -638,6 +641,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 				time_cell->get_dof_indices(time_local_dof_indices);
 
 				cell_matrix = 0;
+				cell_mass_matrix = 0;
 				cell_dual_rhs = 0;
 
 				for (const unsigned int qq : time_fe_values.quadrature_point_indices())
@@ -686,6 +690,23 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 					}
 				}
 
+				// assemble mass matrix for initial condition; still enforcing initial condition, but need this mass term for the dual problem
+				if (time_cell->active_cell_index() == 0)
+				{
+					for (const unsigned int q : space_fe_values.quadrature_point_indices())
+						for (const unsigned int i : space_fe_values.dof_indices())
+							for (const unsigned int j : space_fe_values.dof_indices())
+								cell_mass_matrix(
+										j + 0 * space_dofs_per_cell,
+										i + 0 * space_dofs_per_cell
+								) += (
+										space_fe_values[displacement].value(i, q) * //  ϕ^u_{i,0}(0, x_q)
+										space_fe_values[velocity].value(j, q)       //  ϕ^v_{j,0}(0, x_q)
+										// +
+										+ space_fe_values[velocity].value(i, q) *  //  ϕ^v_{i,0}(0, x_q)
+										space_fe_values[displacement].value(j, q)  //  ϕ^u_{j,0}(0, x_q)
+								) * space_fe_values.JxW(q); 		//  d(x)
+				}
 
 				// distribute local to global
 				if (assemble_matrix)
@@ -700,6 +721,12 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 											space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
 											space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
 											cell_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
+									);
+
+									mass_matrix.add(
+											space_local_dof_indices[i] + time_local_dof_indices[ii] * space_dof_handler.n_dofs(),
+											space_local_dof_indices[j] + time_local_dof_indices[jj] * space_dof_handler.n_dofs(),
+											cell_mass_matrix(i + ii * space_dofs_per_cell, j + jj * space_dofs_per_cell)
 									);
 								}
 						}
@@ -795,7 +822,10 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	if (first_slab)
 	{
 	  std::ofstream matrix_no_bc_out(output_dir + "matrix_no_bc.txt");
-	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16); 
+	  print_as_numpy_arrays_high_resolution(system_matrix, matrix_no_bc_out, /*precision*/16);
+
+	  std::ofstream mass_matrix_no_bc_out(output_dir + "mass_matrix_no_bc.txt");
+	  print_as_numpy_arrays_high_resolution(mass_matrix, mass_matrix_no_bc_out, /*precision*/16); 
 	}
 	
 	std::ofstream rhs_no_bc_out(output_dir + "primal_rhs_no_bc_" + Utilities::int_to_string(slab_number, 5) + ".txt");

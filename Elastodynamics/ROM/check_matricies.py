@@ -9,6 +9,7 @@ from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_i
 
 
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
+MOTHER_PATH = "/home/ifam/roth/Desktop/Code/dealii_dir/iROM/MORe_DWR/Elastodynamics/"
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
@@ -16,12 +17,17 @@ SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
 # %% Reading in matricies and rhs without bc
 matrix_no_bc, _ = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
+mass_matrix_no_bc, _ = read_in_LES(OUTPUT_PATH + cycle, "/mass_matrix_no_bc.txt", "primal_rhs_no_bc")
 system_matrix, _ = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
 
 primal_matrix_transposed_in_dual, _ = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
 
 # %% plot matricies
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+ax1 = axs[0, 0]
+ax2 = axs[0, 1]
+ax3 = axs[1, 0]
+ax4 = axs[1, 1]
 
 ax1.spy(system_matrix, precision=1e-14)
 ax1.set_title("Dual system matrix")
@@ -32,13 +38,15 @@ ax2.set_title("Dual primal matrix assemled tranposed")
 ax3.spy(matrix_no_bc.T, precision=1e-14)
 ax3.set_title("Primal system matrix transposed")
 
+ax4.spy(mass_matrix_no_bc.T, precision=1e-14)
+ax4.set_title("Primal mass matrix transposed")
 
 plt.show()
 
 
 # %% plot diff in matricies
 
-mat = np.abs((matrix_no_bc.T-system_matrix).todense())
+mat = np.abs(((mass_matrix_no_bc.T + matrix_no_bc.T)-system_matrix).todense())
 
 max_value = np.max(np.max(mat))
 # prepare x and y for scatter plot
