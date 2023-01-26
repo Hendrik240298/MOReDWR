@@ -524,6 +524,40 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 	// space-time sparsity pattern = tensor product of spatial and temporal sparsity pattern
 	//
 	
+		// renumber temporal DoFs, which for cG(2) are numbered 0, 2, 1 and not 0, 1, 2
+	// time
+	std::vector<Point<1>> _time_support_points(slab->time_dof_handler.n_dofs());
+	DoFTools::map_dofs_to_support_points(
+		MappingQ1<1,1>(),                    
+		slab->time_dof_handler,
+		_time_support_points
+	); // {0., 10., 5.}
+
+	std::map<double, types::global_dof_index, std::less<double>> time_support_map;
+	for (unsigned int i = 0; i < _time_support_points.size(); ++i)
+		time_support_map[_time_support_points[i][0]] = i;
+
+	// sort time_support_points by time
+	std::sort(std::begin(_time_support_points), std::end(_time_support_points), [](Point<1> const& a, Point<1> const& b) { return a[0] < b[0]; });
+
+	std::vector<types::global_dof_index> time_support_points_order_new(_time_support_points.size());
+	for (unsigned int i = 0; i < _time_support_points.size(); ++i)
+		time_support_points_order_new[time_support_map[_time_support_points[i][0]]] = i;
+
+	slab->time_dof_handler.renumber_dofs(time_support_points_order_new);
+
+	std::vector<Point<1>> time_support_points_new(slab->time_dof_handler.n_dofs());
+	DoFTools::map_dofs_to_support_points(
+		MappingQ1<1,1>(),                    
+		slab->time_dof_handler,
+		time_support_points_new
+	); // {0., 5., 10.}
+
+	// for debugging:
+	// for (auto& t : time_support_points_new)
+	// 	std::cout << "t = " << t[0] << std::endl;
+
+
 	if (k == 1)
 	{
 	  // spatial sparsity pattern
@@ -1051,6 +1085,8 @@ void SpaceTime<3>::output_results(std::shared_ptr<Slab> &slab, const unsigned in
 	  double t_qq = time_point.first;
 	  unsigned int ii = time_point.second;
 	  
+	//   std::cout << "n_snapshots = " << n_snapshots << ", t_qq = " << t_qq << ", ii = " << ii << std::endl;
+
 	  DataOut<3> data_out;
 	  data_out.attach_dof_handler(space_dof_handler);
 	  
