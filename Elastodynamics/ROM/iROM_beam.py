@@ -19,7 +19,7 @@ OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
-LOAD_SOLUTION = True
+LOAD_SOLUTION = False
 
 # if SAVE_PATH directory not exists create it
 if not os.path.exists(SAVE_PATH):
@@ -37,69 +37,11 @@ n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretiz
 
 # %% Reading in matricies and rhs without bc
 matrix_no_bc, rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
-dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+mass_matrix_no_bc, _ = read_in_LES(OUTPUT_PATH + cycle, "/mass_matrix_no_bc.txt", "primal_rhs_no_bc")
 
-dual_matrix_no_bc_cpp, _ = read_in_LES(OUTPUT_PATH_DUAL + cycle, "/dual_matrix_no_bc.txt", "dual_rhs_no_bc")
+_, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
 
-# dual_matrix_no_bc, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
-# dual_matrix_no_bc = dual_matrix_no_bc.copy().T
-
-# plt.spy(dual_matrix_no_bc_cpp-dual_matrix_no_bc)
-# plt.show()
-
-# matplotlib figure with 3 plots 
-
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-ax1.spy(dual_matrix_no_bc_cpp, precision=1e-14)
-ax1.set_title("Dual Matrix C++")
-
-ax2.spy(dual_matrix_no_bc, precision=1e-14)
-ax2.set_title("Dual Matrix Python")
-
-ax3.spy(matrix_no_bc, precision=1e-14)
-ax3.set_title("Primal Matrix")
-
-
-plt.show()
-
-#ax3.spy(dual_matrix_no_bc_cpp-dual_matrix_no_bc, precision=1e-14)
-#ax3.imshow((dual_matrix_no_bc_cpp-dual_matrix_no_bc).todense(), cmap="viridis", interpolation="none")
-# plot colorbar for ax3
-
-mat = np.abs((dual_matrix_no_bc_cpp-dual_matrix_no_bc).todense())
-# prepare x and y for scatter plot
-plot_list = []
-for rows,cols in zip(np.where(mat!=0)[0],np.where(mat!=0)[1]):
-    if (np.abs(mat[rows,cols]) > 1e-8):
-        plot_list.append([cols,rows,mat[rows,cols]])
-for i in range(3*702):
-    plot_list.append([i,351,1e-8])
-    plot_list.append([351,i,1e-8])
-    plot_list.append([i,351+350,1e-8])
-    plot_list.append([351+350,i,1e-8])
-    plot_list.append([i,351+2*350,1e-8])
-    plot_list.append([351+2*350,i,1e-8])
-plot_list = np.array(plot_list)
-
-# scatter plot with color bar, with rows on y axis
-plt.scatter(plot_list[:,0],plot_list[:,1],c=plot_list[:,2], s=1)
-
-cb = plt.colorbar()
-# cb colorbar logarithmic
-#cb.set_ticks([1e-7,1e-6,1e-5,1e-4,1e-3,1e-2])
-
-# full range for x and y axes
-plt.xlim(0,mat.shape[1])
-plt.ylim(0,mat.shape[0])
-# invert y axis to make it similar to imshow
-plt.gca().invert_yaxis()
-
-#ax3.set_title("Difference")
-
-plt.show()
-
-
+dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 
 # %% Enforcing BC to primal und dual systems 
 primal_matrix, primal_system_rhs = apply_boundary_conditions(matrix_no_bc, rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
@@ -175,27 +117,24 @@ if not LOAD_SOLUTION:
     for i in range(slab_properties["n_total"]):
         primal_solutions = solve_primal_FOM_step(primal_solutions, D_wbc, C_wbc, primal_system_rhs[i], slab_properties, n_dofs, i)
 
+    end_execution = time.time()
+
+    for i, primal_solution in enumerate(primal_solutions["value"]):
+        save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+            primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions["time"][i])
+
+    save_solution_txt(SAVE_PATH + "/py_solution", primal_solutions)
+
 else:
     primal_solutions = load_solution_txt(SAVE_PATH + "/py_solution")
+    end_execution = time.time()
 
-end_execution = time.time()
 
 execution_time_FOM = end_execution - start_execution
 
 print("Primal FOM time:   " + str(execution_time_FOM))
 print("n_dofs[space] =", n_dofs["space"])
 
-
-save_solution_txt(SAVE_PATH + "/py_solution", primal_solutions)
-
-# for i, primal_solution in enumerate(primal_solutions["value"]):
-#     save_solution_txt(SAVE_PATH + "/py_solution", primal_solution,i)
-# np.savetxt(SAVE_PATH + "/py_solution_time.txt", primal_solutions["time"])   
-
-
-for i, primal_solution in enumerate(primal_solutions["value"]):
-    save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
-        primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions["time"][i])
 
 primal_solutions_slab =  {"value": [], "time": []}
 for i in range(slab_properties["n_total"]):
@@ -206,7 +145,6 @@ for i in range(slab_properties["n_total"]):
 # %% dual FOM solve
 start_execution = time.time()
 last_dual_solution = np.zeros((n_dofs["time_step"],))
-
 
 # for debugging:
 # dual_system_rhs = primal_system_rhs[::-1] 
@@ -223,22 +161,30 @@ if not LOAD_SOLUTION:
 else:
     dual_solutions = {"value": [], "time": []}
     i = 0
-    for f in sorted([f for f in os.listdir(OUTPUT_PATH_DUAL + cycle) if "dual_solution" in f]):
-        tmp_sol = np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/" + f)
-        time_counter = 0
-        for j in slab_properties["ordering"][:-1]: #[0,2]: #range(slab_properties["n_time_unknowns"])):
-            dual_solutions["value"].append(tmp_sol[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
-            dual_solutions["time"].append(slab_properties["time_points"][i][time_counter])
-            time_counter += 1
-        i += 1
+    i = len(slab_properties['time_points'])-1
+    print(i)
 
     dual_solutions["value"].append(np.zeros((n_dofs["time_step"],)))
     dual_solutions["time"].append(slab_properties["time_points"][-1][-1])
-    # dual_solutions["time"].append(0.)
+    print(f"IC -> f{slab_properties['time_points'][-1][-1]}")
 
-    print("test")
-    # dual_solutions.append(np.zeros((n_dofs["time_step"],)))
-        
+    for f in sorted([f for f in os.listdir(OUTPUT_PATH_DUAL + cycle) if "dual_solution" in f]):
+        tmp_sol = np.loadtxt(OUTPUT_PATH_DUAL + cycle + "/" + f)
+        time_counter = slab_properties["n_time_unknowns"]-1
+        print(f"i: {f}")
+        for j in list(slab_properties["ordering"][:-1])[::-1]: #[0,2]: #range(slab_properties["n_time_unknowns"])):
+            # print("i: ", i)
+            # print("time_counter: ", time_counter)
+            print(f"   j: {j} -> f{slab_properties['time_points'][i][time_counter]}")
+            
+            dual_solutions["value"].append(tmp_sol[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+            dual_solutions["time"].append(slab_properties["time_points"][i][time_counter])
+            time_counter -= 1 
+        i -= 1 #+= 1
+
+    dual_solutions["value"] = dual_solutions["value"][::-1]
+    dual_solutions["time"] = dual_solutions["time"][::-1]
+
 end_execution = time.time()
 execution_time_FOM = end_execution - start_execution
 print("Dual FOM time:   " + str(execution_time_FOM))
@@ -273,7 +219,7 @@ singular_values_dual = {"displacement": np.empty(
     [0, 0]), "velocity": np.empty([0, 0])}
 
 
-for primal_solution in primal_solutions["value"][0:2]:
+for primal_solution in primal_solutions["value"][0:100]:
     pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
         = iPOD(pod_basis["displacement"],
                bunch["displacement"],
@@ -328,6 +274,11 @@ reduced_solution_old = reduce_vector(initial_solution[:], pod_basis)
 projected_reduced_solutions = {"value": [project_vector(reduce_vector(initial_solution[:], pod_basis), pod_basis)], 
                                "time": [0.]}
 
+
+perfect_reduced_solutions = {"value": [primal_solutions["value"][0]], 
+                               "time": [0.]}
+
+
 last_projected_reduced_solution = projected_reduced_solutions
 projected_reduced_solutions_before_enrichment = []
 
@@ -360,32 +311,41 @@ for i in range(slab_properties["n_total"]):
     # primal ROM solve
     projected_reduced_solutions, reduced_solution_old = solve_primal_ROM_step(projected_reduced_solutions, reduced_solution_old, D_reduced, C_reduced, rhs_no_bc[i], pod_basis, slab_properties, n_dofs, i)
 
-    temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
+    perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+1])
+    perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+2])
+
+    perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+1])
+    perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+2])
+ 
+    print(f"first:   {perfect_reduced_solutions['time'][-2]}")
+    print(f"second:  {perfect_reduced_solutions['time'][-1]}")
+
+
+    # temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
+    temporal_interval_error.append(error_estimator(perfect_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
 
     temporal_interval_error_relative.append(temporal_interval_error[-1] / \
                             np.abs(temporal_interval_error[-1] + evaluate_cost_functional(projected_reduced_solutions,dual_rhs_no_bc[i].copy(), slab_properties,i)))
 
-    if temporal_interval_error_relative[-1] > tol_rel:
-        print(f"{i}: {slab_properties['n_time_unknowns']*i} - {slab_properties['n_time_unknowns']*(i+1)}")
-        pod_basis, C_reduced, D_reduced, projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]:], singular_values, total_energy = ROM_update( 
-                    pod_basis, 
-                    projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1], # last solution of slab before
-                    C_wbc, 
-                    D_wbc, 
-                    C, 
-                    D, 
-                    rhs_no_bc[i][n_dofs["time_step"]:].copy(), 
-                    slab_properties["n_time_unknowns"], 
-                    singular_values, 
-                    total_energy, 
-                    ENERGY_PRIMAL,
-                    slab_properties["n_time_unknowns"], 
-                    n_dofs)
+    # if temporal_interval_error_relative[-1] > tol_rel:
+    #     print(f"{i}: {slab_properties['n_time_unknowns']*i} - {slab_properties['n_time_unknowns']*(i+1)}")
+    #     pod_basis, C_reduced, D_reduced, projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]:], singular_values, total_energy = ROM_update( 
+    #                 pod_basis, 
+    #                 projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1], # last solution of slab before
+    #                 C_wbc, 
+    #                 D_wbc, 
+    #                 C, 
+    #                 D, 
+    #                 rhs_no_bc[i][n_dofs["time_step"]:].copy(), 
+    #                 slab_properties["n_time_unknowns"], 
+    #                 singular_values, 
+    #                 total_energy, 
+    #                 ENERGY_PRIMAL,
+    #                 slab_properties["n_time_unknowns"], 
+    #                 n_dofs)
 
-
-        n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + pod_basis["velocity"].shape[1]
-        reduced_solution_old = reduce_vector(projected_reduced_solutions["value"][-1],pod_basis)
-    # last_projected_reduced_solution = projected_reduced_solutions["value"][-1]
+    #     n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + pod_basis["velocity"].shape[1]
+    #     reduced_solution_old = reduce_vector(projected_reduced_solutions["value"][-1],pod_basis)
 
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
