@@ -102,8 +102,12 @@ def read_in_discretization(PATH):
         np.tensordot(np.ones_like(coordinates_t), coordinates_x, 0).flatten()
     )).T
 
-    index2measuredisp = np.where((coordinates_x.T == (6, 0.5, 0)).all(axis=1))[0][1]
-    print(f"index: {index2measuredisp}")
+    index2measuredisp = None
+    try:
+        index2measuredisp = np.where((coordinates_x.T == (6, 0.5, 0)).all(axis=1))[0][1]
+    except IndexError:
+        index2measuredisp = np.where((coordinates_x.T == (6, 1, 0)).all(axis=1))[0][1]
+    print(f"measure displacement at (6, 0.5, 0) with index: {index2measuredisp}")
 
     # n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block
     n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
@@ -253,7 +257,7 @@ def error_estimator(projected_reduced_solutions, dual_projected_reduced_solution
 
     residual_slab = - matrix_no_bc.dot(projected_slab["value"]) + rhs_no_bc
 
-    error_estimate = np.abs(np.dot(dual_projected_slab["value"], residual_slab))
+    error_estimate = (np.dot(dual_projected_slab["value"], residual_slab))
 
     return error_estimate    
 
@@ -275,3 +279,42 @@ def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_p
     cost_functional = np.dot(primal_projected_slab, dual_rhs_no_bc)
 
     return cost_functional
+
+
+def find_solution_indicies_for_slab(slab_times, solution_times):
+    # find argument where time of dual_projected_reduced_solutions is equal to time of projected_slab
+    solution_index = []
+    for slab_time in slab_times:
+        for i, solution_time in enumerate(solution_times):
+            if slab_time == solution_time:
+                solution_index.append(i)
+                break
+
+    return solution_index
+
+def plot_matrix(matrix, title="matrix"):
+
+    # check if type(matrix) is np.ndarray 
+    
+    if type(matrix) != np.ndarray:
+        matrix = matrix.toarray()
+    
+    max_value = np.max(np.max(matrix))
+    # prepare x and y for scatter plot
+    plot_list = []
+    for rows,cols in zip(np.where(matrix!=0)[0],np.where(matrix!=0)[1]):
+        #if (np.abs(matrix[rows,cols]) > 1e-10): #-8):
+        plot_list.append([cols,rows,matrix[rows,cols]])
+    plot_list = np.array(plot_list)
+
+    # scatter plot with color bar, with rows on y axis
+    plt.scatter(plot_list[:,0],plot_list[:,1],c=plot_list[:,2], s=1)
+
+    cb = plt.colorbar()
+
+    # full range for x and y axes
+    plt.xlim(0,matrix.shape[1])
+    plt.ylim(0,matrix.shape[0])
+    plt.gca().invert_yaxis()
+    plt.title(title)
+    plt.show()
