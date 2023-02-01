@@ -29,8 +29,8 @@ if not os.path.exists(SAVE_PATH):
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 
 ENERGY_DUAL = 0.999999
-ENERGY_PRIMAL = {"displacement": 0.99999999,
-                 "velocity":     0.99999999}
+ENERGY_PRIMAL = {"displacement": 0.999999,
+                 "velocity":     0.999999}
 
 # %% read in properties connected to discretization
 n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretization(
@@ -191,7 +191,7 @@ singular_values = {"displacement": np.empty(
     [0, 0]), "velocity": np.empty([0, 0])}
 
 
-for primal_solution in primal_solutions["value"][0:400]:
+for primal_solution in primal_solutions["value"]:# [0:400]:
     pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
         = iPOD(pod_basis["displacement"],
                bunch["displacement"],
@@ -270,14 +270,6 @@ for i in range(slab_properties["n_total"]):
 
     projected_reduced_solutions, reduced_solution_old = solve_primal_ROM_step(projected_reduced_solutions, reduced_solution_old, D_reduced, C_reduced, rhs_no_bc[i], pod_basis, slab_properties, n_dofs, i)
 
-    # override rom with fom solution
-    # projected_reduced_solutions["value"] = primal_solutions["value"][:len(projected_reduced_solutions["value"])]
-    # projected_reduced_solutions["time"] = primal_solutions["time"][:len(projected_reduced_solutions["time"])]
-    # reduced_solution_old = reduce_vector(projected_reduced_solutions["value"][-1], pod_basis)
-    
-    # temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
-
-    # print(i)
     projected_slab = {"value": [], "time": []}
     dual_projected_slab = {"value": [], "time": []}
 
@@ -286,39 +278,21 @@ for i in range(slab_properties["n_total"]):
     projected_slab["value"] = np.hstack([projected_reduced_solutions["value"][k] for k in index])
     projected_slab["time"] = np.hstack([projected_reduced_solutions["time"][k] for k in index])
 
-    # projected_slab["value"] = np.hstack(projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1:])
-    # projected_slab["time"] = np.hstack(projected_reduced_solutions["time"][-slab_properties["n_time_unknowns"]-1:])
-
-
     # find argument where time of dual_projected_reduced_solutions is equal to time of projected_slab
     index_of_dual = find_solution_indicies_for_slab(projected_slab["time"], dual_solutions["time"])
    
-    # for j in range(len(projected_slab["time"])):
-    #     for k in range(len(dual_solutions["time"])):
-    #         if dual_solutions["time"][k] == projected_slab["time"][j]:
-    #             index_of_dual.append(k)
-        
 
     # hstack last entries of projected_reduced_solutions to obtain slab
     dual_projected_slab["value"] = np.hstack(
         [dual_solutions["value"][k] for k in index_of_dual])
-
-    # hstack i-th last entries of projected_reduced_solutions["time"] to obtain slab
-    dual_projected_slab["time"] = np.hstack(
-        [dual_solutions["time"][k] for k in index_of_dual])
-
-    # dual_projected_slab["value"] = dual_solutions_slab["value"][i].copy()
-    # projected_slab["value"] = primal_solutions_slab["value"][i].copy()
     
     residual_slab = - matrix_no_bc.dot(projected_slab["value"]) + rhs_no_bc[i].copy()
     # residual_slab -= mass_matrix_no_bc.dot(projected_slab["value"])
 
-    # residual_slab = - matrix_no_bc.dot(primal_solutions_slab["value"][i]) + rhs_no_bc[i].copy()
-    # residual_slab = matrix_no_bc.dot(primal_solutions_slab["value"][i]-projected_slab["value"])
     
     # print(f"res: {np.linalg.norm(residual_slab)},  dual: {np.linalg.norm(dual_projected_slab['value'])}")
     temporal_residual_norm.append(np.linalg.norm(residual_slab))
-    temporal_dual_norm.append(np.linalg.norm(dual_projected_slab["value"]))
+    # temporal_dual_norm.append(np.linalg.norm(dual_projected_slab["value"]))
     
     temporal_solution_diff_norm.append(np.linalg.norm(primal_solutions_slab["value"][i] - projected_slab["value"]))
     goal_func_error.append((primal_solutions_slab["value"][i] - projected_slab["value"]).dot(dual_rhs_no_bc[i]))
@@ -348,11 +322,6 @@ for i in range(slab_properties["n_total"]):
 
     print(f"lhs: {lhs}, rhs: {rhs}")
 
-
-
-    last_projected_slab = {"value": [], "time": []}
-    last_projected_slab["value"] = projected_slab["value"].copy()
-    
     last_projected_dual_slab = {"value": [], "time": []}
     last_projected_dual_slab["value"] = dual_projected_slab["value"].copy()
     
@@ -430,8 +399,8 @@ plt.show()
 
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
         temporal_residual_norm, color='r', label="residual")
-plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
-          temporal_dual_norm, '--', c='#1f77b4', label="dual")
+# plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
+#           temporal_dual_norm, '--', c='#1f77b4', label="dual")
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
