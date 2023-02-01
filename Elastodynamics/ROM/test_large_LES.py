@@ -9,8 +9,20 @@ import os
 import time
 import sys
 from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
-from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_in_discretization, solve_primal_FOM_step, solve_dual_FOM_step, solve_primal_ROM_step, reorder_matrix, reorder_vector, error_estimator, save_solution_txt, load_solution_txt, evaluate_cost_functional, find_solution_indicies_for_slab
+from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_in_discretization
+from auxiliaries import solve_primal_FOM_step, solve_dual_FOM_step, solve_primal_ROM_step, reorder_matrix
+from auxiliaries import reorder_vector, error_estimator, save_solution_txt, load_solution_txt 
+from auxiliaries import evaluate_cost_functional, find_solution_indicies_for_slab, plot_matrix
 #import imageio
+
+"""
+We try to test if the error estimator works when consistency using large LES
+* Highlights test 
+! Right now even the primal FOM does not work
+? What is the problem?
+TODO Try to repair primal FOM
+"""
+
 
 PLOTTING = False
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
@@ -36,7 +48,8 @@ ENERGY_PRIMAL = {"displacement": 0.999999,
 n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretization(
     OUTPUT_PATH + cycle)
 
-# %% Reading in matricies and rhs without bc
+
+# %% Reading in matrices and rhs without bc
 matrix_no_bc, rhs_no_bc = read_in_LES(
     OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
 mass_matrix_no_bc, _ = read_in_LES(
@@ -48,13 +61,40 @@ _, dual_rhs_no_bc = read_in_LES(
 # dual matrix is primal.T + mass_matrix.T
 dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 
-weight_mass_matrix = 1#1.e4
+weight_mass_matrix = 1.#1.e4
 
-matrix_no_bc = matrix_no_bc + weight_mass_matrix * mass_matrix_no_bc
+first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
+last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
 
+plot_matrix(first_time_step ,"first step")
+plot_matrix(last_time_step, "last step")
+plot_matrix(mass_matrix_no_bc, "M_1")
+
+print(np.linalg.norm(first_time_step))
+print(np.linalg.norm(last_time_step))
+print(np.linalg.norm(first_time_step - last_time_step))
+print(np.linalg.norm(mass_matrix_no_bc.toarray()))
+
+# * System Matrix = system_matrix + weight_mass_matrix * mass_matrix
+tmp = (matrix_no_bc.toarray() + weight_mass_matrix * mass_matrix_no_bc.toarray()).copy()
+matrix_no_bc = tmp.copy()
 mass_matrix_last_time_step = np.zeros((mass_matrix_no_bc.shape[0],mass_matrix_no_bc.shape[1]))
 mass_matrix_last_time_step[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
 
+plot_matrix(mass_matrix_no_bc, "M_1")
+plot_matrix(mass_matrix_last_time_step, "M_3")
+
+plot_matrix(matrix_no_bc, "System Matrix")
+
+
+
+# * check if mass matrix is added
+
+first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]]
+last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:]
+
+print(np.linalg.norm(mass_matrix_no_bc.toarray()))
+print(np.linalg.norm(first_time_step - last_time_step))
 
 
 # %% Enforcing BC to primal und dual systems
