@@ -252,11 +252,19 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 		return 0.;
 	case 3:
 	{
-		bool force_on = (t <= 10.);
+		double max_force = 0.5;
+		double time_of_max_force = 5.;
+		double time_2_release_force = 1.;
+		// bool force_on = (t <= 10.);
 		if (component == 0)
 			return 0.;
 		else if (component == 1)
-			return force_on * (t/10.); //* std::pow(p[0], 2);
+			if (t <= time_of_max_force)
+				return max_force * (t/time_of_max_force);
+			else if (t <= time_of_max_force + time_2_release_force)
+				return max_force * (1-(t-time_of_max_force)/time_2_release_force);
+			else
+				return 0.;
 		else if (component == 2)
 			return 0.;
 	}
