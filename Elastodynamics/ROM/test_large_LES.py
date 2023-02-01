@@ -48,7 +48,7 @@ _, dual_rhs_no_bc = read_in_LES(
 # dual matrix is primal.T + mass_matrix.T
 dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 
-weight_mass_matrix = 1. #1.e4
+weight_mass_matrix = 1#1.e4
 
 matrix_no_bc = matrix_no_bc + weight_mass_matrix * mass_matrix_no_bc
 
