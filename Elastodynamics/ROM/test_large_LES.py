@@ -84,10 +84,6 @@ weight_mass_matrix = 1.#1.e4
 first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
 last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
 
-# plot_matrix(first_time_step ,"first step")
-# plot_matrix(last_time_step, "last step")
-# plot_matrix(mass_matrix_no_bc, "M_1")
-
 # print norm of first and last time step
 print(" ")
 print(f"Norm of first time step bf adding : {np.linalg.norm(first_time_step)}")
@@ -102,11 +98,6 @@ matrix_no_bc = matrix_no_bc + weight_mass_matrix * mass_matrix_no_bc
 
 mass_matrix_last_time_step = np.zeros((mass_matrix_no_bc.shape[0],mass_matrix_no_bc.shape[1]))
 mass_matrix_last_time_step[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-
-# plot_matrix(mass_matrix_no_bc, "M_1")
-# plot_matrix(mass_matrix_last_time_step, "M_3")
-
-# plot_matrix(matrix_no_bc, "System Matrix")
 
 # * check if mass matrix is added
 
@@ -158,24 +149,15 @@ print("n_dofs[space] =", n_dofs["space"])
 primal_solutions_per_quad_point = {"value": [np.zeros(int(n_dofs["time_step"]))], "time": [0.]}
 
 for i, primal_solution_slab in enumerate(primal_solutions["value"]):
-    for j in range(len(slab_properties["time_points"][i])):
+    for j in range(len(slab_properties["time_points"][i][1:])):
         range_start = int((j)*n_dofs["time_step"])
         range_end = int((j+1)*n_dofs["time_step"])
         primal_solutions_per_quad_point["value"].append(primal_solutions["value"][i][range_start:range_end])
-        primal_solutions_per_quad_point["time"].append(slab_properties["time_points"][i][j])
-        # print(primal_solutions_per_quad_point["time"][-1])
-    # for j in range(len(slab_properties["time_points"][i][1:])):
-    #     range_start = int((j+1)*n_dofs["time_step"])
-    #     range_end = int((j+2)*n_dofs["time_step"])
-    #     primal_solutions_per_quad_point["value"].append(primal_solutions["value"][i][range_start:range_end])
-    #     primal_solutions_per_quad_point["time"].append(slab_properties["time_points"][i][j+1])
-    #     print(primal_solutions_per_quad_point["time"][-1])
+        primal_solutions_per_quad_point["time"].append(slab_properties["time_points"][i][j+1])
 
-print(len(primal_solutions_per_quad_point["value"]))
 for i, primal_solution in enumerate(primal_solutions_per_quad_point["value"]):
         save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
             primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions_per_quad_point["time"][i])
-        print(primal_solutions_per_quad_point["time"][i])
 
 # %% dual FOM solve
 start_execution = time.time()
