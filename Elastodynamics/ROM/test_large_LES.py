@@ -61,40 +61,65 @@ _, dual_rhs_no_bc = read_in_LES(
 # dual matrix is primal.T + mass_matrix.T
 dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 
+"""
+* A := mass_matrix_no_bc
+
+* matrix_no_bc * U = rhs_no_bc
+* <=> 
+* (-A/2 + 2*B*k/15,    2*A/3 + B*k/15,    -A/6 - B*k/30) (U_n)      (F, phi_n+1/2) 
+* (-2*A/3 + B*k/15,     8*B*k/15,       2*A/3 + B*k/15) (U_n+1/2) = (F, phi_n+1/2)
+* (A/6 - B*k/30,     -2*A/3 + B*k/15,   A/2 + 2*B*k/15) (U_n+1)     (F, phi_n+1)
+
+! -------------------------------------------------------------------------------
+
+* [matrix_no_bc + mass_matrix_no_bc] U = rhs 
+* <=> 
+* (A/2 + 2*B*k/15,    2*A/3 + B*k/15,    -A/6 - B*k/30) (U_n)       (F, phi_n+1/2) + U_old A
+* (-2*A/3 + B*k/15,     8*B*k/15,       2*A/3 + B*k/15) (U_n+1/2) = (F, phi_n+1/2)
+* (A/6 - B*k/30,     -2*A/3 + B*k/15,   A/2 + 2*B*k/15) (U_n+1)     (F, phi_n+1)
+"""
+
 weight_mass_matrix = 1.#1.e4
 
 first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
 last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
 
-plot_matrix(first_time_step ,"first step")
-plot_matrix(last_time_step, "last step")
-plot_matrix(mass_matrix_no_bc, "M_1")
+# plot_matrix(first_time_step ,"first step")
+# plot_matrix(last_time_step, "last step")
+# plot_matrix(mass_matrix_no_bc, "M_1")
 
-print(np.linalg.norm(first_time_step))
-print(np.linalg.norm(last_time_step))
-print(np.linalg.norm(first_time_step - last_time_step))
-print(np.linalg.norm(mass_matrix_no_bc.toarray()))
+# print norm of first and last time step
+print(" ")
+print(f"Norm of first time step bf adding : {np.linalg.norm(first_time_step)}")
+print(f"Norm of last time step bf adding  : {np.linalg.norm(last_time_step)}")
+print(f"Norm of diff bf adding            : {np.linalg.norm(first_time_step - last_time_step)}")
+print(" ")
+
+
 
 # * System Matrix = system_matrix + weight_mass_matrix * mass_matrix
-tmp = (matrix_no_bc.toarray() + weight_mass_matrix * mass_matrix_no_bc.toarray()).copy()
-matrix_no_bc = tmp.copy()
+matrix_no_bc = matrix_no_bc + weight_mass_matrix * mass_matrix_no_bc
+
 mass_matrix_last_time_step = np.zeros((mass_matrix_no_bc.shape[0],mass_matrix_no_bc.shape[1]))
 mass_matrix_last_time_step[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
 
-plot_matrix(mass_matrix_no_bc, "M_1")
-plot_matrix(mass_matrix_last_time_step, "M_3")
+# plot_matrix(mass_matrix_no_bc, "M_1")
+# plot_matrix(mass_matrix_last_time_step, "M_3")
 
-plot_matrix(matrix_no_bc, "System Matrix")
-
-
+# plot_matrix(matrix_no_bc, "System Matrix")
 
 # * check if mass matrix is added
 
-first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]]
-last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:]
+first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
+last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
 
-print(np.linalg.norm(mass_matrix_no_bc.toarray()))
-print(np.linalg.norm(first_time_step - last_time_step))
+# print norm of first and last time step
+print(f"Norm of first time step aft adding: {np.linalg.norm(first_time_step)}")
+print(f"Norm of last time step aft adding : {np.linalg.norm(last_time_step)}")
+print(f"Norm of diff aft adding           : {np.linalg.norm(first_time_step - last_time_step)}")
+print(" ")
+print(f"Norm of mass matrix               : {np.linalg.norm(mass_matrix_no_bc.toarray())}")
+
 
 
 # %% Enforcing BC to primal und dual systems
