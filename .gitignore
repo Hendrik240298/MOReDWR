@@ -24,3 +24,5 @@ Wave/FOM/.cproject
 Wave/FOM/.project
 Heat/FOM/slabwise/.project
 Heat/FOM/all_at_once/.project
+Elastodynamics/ROM/main.cc
+Elastodynamics/ROM/iROM.h
