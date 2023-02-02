@@ -1568,8 +1568,8 @@ int main() {
 
 		std::vector<unsigned int> r;
 		std::vector<double> t = {0.};
-		double T = 40.;
-		int N = 1600; //0; //2*4;
+		double T = 40.*2/4;
+		int N = int(1600*2/4); //0; //2*4;
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
