@@ -13,3 +13,14 @@
 **/**/**/**/__pycache__/
 **/**/**/**/*.submit
 **/**/**/**/*.gif
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+.gitignore
+Elastodynamics/FOM/.cproject
+Elastodynamics/FOM/.project
+Heat/FOM/all_at_once/.cproject
+Heat/FOM/slabwise/.cproject
+Wave/FOM/.cproject
+Wave/FOM/.project
+Heat/FOM/slabwise/.project
+Heat/FOM/all_at_once/.project
