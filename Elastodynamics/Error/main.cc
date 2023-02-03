@@ -304,6 +304,8 @@ private:
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
 	Tensor<1,dim> compute_functional_values(std::shared_ptr<Slab> &slab, Vector<double> &slab_u);
 	Tensor<1,dim> compute_normal_stress(Vector<double> space_solution);
+	double compute_space_time_error(std::shared_ptr<Slab> &slab, Vector<double> &slab_u, Vector<double> &slab_z);
+	double compute_space_time_error_qq(double t_qq, Vector<double> &u_qq, Vector<double> &z_qq, Vector<double> &dt_u_qq);
 
 	std::string problem_name;
 	
@@ -562,6 +564,108 @@ Tensor<1,dim> SpaceTime<dim>::compute_normal_stress(Vector<double> space_solutio
 }
 
 template<int dim>
+double SpaceTime<dim>::compute_space_time_error(std::shared_ptr<Slab> &slab, Vector<double> &slab_u, Vector<double> &slab_z)
+{
+	double error = 0.;
+
+	FEValues<1> time_fe_values(slab->time_fe, QGauss<1>(slab->time_fe.degree + 6), update_values | update_gradients | update_quadrature_points | update_JxW_values);
+	std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());	
+
+	for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
+	  time_fe_values.reinit(time_cell);
+	  time_cell->get_dof_indices(time_local_dof_indices);
+
+	  for (const unsigned int qq : time_fe_values.quadrature_point_indices()) 
+	  {
+	    // time quadrature point
+	    double t_qq = time_fe_values.quadrature_point(qq)[0];
+	    
+		/////////////////////////////////////////////////////////////////////////////////////////////////
+	    // get the space solution of u, z, as well as ∂_t u, ∂_t z at the temporal quadrature point t_qq
+		//
+	    Vector<double> u_qq(space_dof_handler.n_dofs());
+		Vector<double> z_qq(space_dof_handler.n_dofs());
+		Vector<double> dt_u_qq(space_dof_handler.n_dofs());
+		// Vector<double> dt_z_qq(space_dof_handler.n_dofs());
+		for (const unsigned int ii : time_fe_values.dof_indices())
+		{
+		  for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+		  {
+			// u(t_qq) and z(t_qq)
+			u_qq(i) += slab_u(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_value(ii, qq);
+			z_qq(i) += slab_z(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_value(ii, qq);
+			// ∂_t u(t_qq)
+			dt_u_qq(i) += slab_u(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_grad(ii, qq)[0];
+			// dt_z_qq(i) += slab_z(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_grad(ii, qq)[0];
+		  }
+		}
+	    
+	    // add local contributions to global error
+		error += compute_space_time_error_qq(t_qq, u_qq, z_qq, dt_u_qq) * time_fe_values.JxW(qq);
+	  }
+	}
+
+	return error;
+}
+
+template<int dim>
+double SpaceTime<dim>::compute_space_time_error_qq(double t_qq, Vector<double> &u_qq, Vector<double> &z_qq, Vector<double> &dt_u_qq)
+{
+	double error = 0.;
+
+	QGauss<dim> space_quad_formula(space_fe.degree + 6);
+	QGauss<dim-1> space_face_quad_formula(space_fe.degree + 6);
+	FEValues<dim> space_fe_values(space_fe, space_quad_formula,
+			update_values | update_gradients | update_quadrature_points | update_JxW_values);
+	FEFaceValues<dim> space_fe_face_values(space_fe, space_face_quad_formula,
+					update_values | update_gradients | update_normal_vectors | update_JxW_values);
+	
+	const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
+	const unsigned int n_q_points = space_quad_formula.size();
+	const unsigned int n_face_q_points = space_face_quad_formula.size();
+	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
+
+	// prepare data storage for error estimation
+	std::vector<Vector<double>> dt_U(n_q_points, Vector<double>(dim + dim));
+	
+	std::vector<Vector<double>> U(n_q_points, Vector<double>(dim + dim));
+	std::vector<std::vector<Tensor<1, dim>>> dx_U(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
+
+	std::vector<Vector<double>> Z(n_q_points, Vector<double>(dim + dim));
+	std::vector<std::vector<Tensor<1, dim>>> dx_Z(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
+
+	for (const auto &space_cell : space_dof_handler.active_cell_iterators())
+	{
+		sapce_fe_values.reinit(space_cell);
+		space_cell->get_dof_indices(space_local_dof_indices);
+
+		// get all spatial function values and gradients
+		space_fe_values.get_function_values(dt_u_qq, dt_U);
+
+		space_fe_values.get_function_values(u_qq, U);
+		space_fe_values.get_function_gradients(u_qq, dx_U);
+
+		space_fe_values.get_function_values(z_qq, Z);
+		space_fe_values.get_function_gradients(z_qq, dx_Z);
+
+		for (const unsigned int q : space_fe_values.quadrature_point_indices())
+		{
+			// TODO: continue with error estimator here!!!
+			Tensor<2, dim> symm_grad_u;
+			for (unsigned int l = 0; l < dim; l++)
+				for (unsigned int m = 0; m < dim; m++)
+					symm_grad_u[l][m] = 0.5 * (face_solution_grads[q][l][m] + face_solution_grads[q][m][l]);
+
+			const Tensor<2, dim> stress_tensor = 2. * mu * symm_grad_u + lambda * trace(symm_grad_u) * identity;
+
+			error += stress_tensor * space_fe_values.normal_vector(q) * space_fe_values.JxW(q);
+		}
+	}
+
+	return error;
+}
+
+template<int dim>
 void SpaceTime<dim>::run() {
 	std::cout << "Starting problem " << problem_name << " in " << dim << "+1D..." << std::endl;
 
@@ -681,17 +785,14 @@ void SpaceTime<dim>::run() {
 			}
 		} // end for slab
 
-		// TODO: load U_r, U_h and Z_h as slab vectors for this refinement cycle
-
 		for (unsigned int k = 0; k < slabs.size(); ++k)
 		{
 			// create and solve linear system
 			setup_system(slabs[k], k+1);
 
+			/////////////////////////////////////////////
             // compute J(U_h) - J(U_r) on current slab
-			// TODO: compute J(U_h) and J(U_r) on current slab
-            // TODO: compute_functional_values(cycle, k); for U_h
-			// TODO: compute_functional_values(cycle, k); for U_r
+			//
 			double python_goal_func_error = J_h[k] - J_r[k];
 			std::cout << "PY: " << python_goal_func_error << std::endl;
 			double cpp_goal_func_error = compute_functional_values(slabs[k], U_h[k])[1] - compute_functional_values(slabs[k], U_r[k])[1];
@@ -704,14 +805,25 @@ void SpaceTime<dim>::run() {
 			python_goal_out << slab_t << "," << python_goal_func_error << std::endl;
 			cpp_goal_out << slab_t << "," << cpp_goal_func_error << std::endl;
 
+			////////////////////////////////////////////////
+			// compute the error estimator on current slab
+			//
+			
+			// compute the error estimator for the initial condition
+			// TODO
+
+			// copmute the error estimator fot the space-time residual
+			double space_time_error = compute_space_time_error(slabs[k], U_r[k], Z_h[k]);
+			std::cout << "η = " << space_time_error << std::endl;
+
 			///////////////////////
 			// prepare next slab
 			//
 			    
-			// get initial value for next slab
-			unsigned int ii = slabs[k]->time_dof_handler.n_dofs()-1;
-			for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
-			  initial_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
+			// // get initial value for next slab
+			// unsigned int ii = slabs[k]->time_dof_handler.n_dofs()-1;
+			// for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+			//   initial_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
 		}
 
 		exit(2);
