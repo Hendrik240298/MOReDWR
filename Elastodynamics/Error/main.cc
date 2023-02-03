@@ -273,6 +273,8 @@ double RightHandSide<dim>::value(const Point<dim> &p,
 		Assert(false, ExcNotImplemented());
 	}
 	}
+
+	return -1.0; // to avoid "no return warning"
 }
 
 class Slab {
@@ -529,10 +531,8 @@ Tensor<1,dim> SpaceTime<dim>::compute_normal_stress(Vector<double> space_solutio
 	FEFaceValues<dim> space_fe_face_values(space_fe, space_face_quad_formula,
 						update_values | update_gradients | update_normal_vectors | update_JxW_values | update_quadrature_points);
 
-	const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
 	const unsigned int n_face_q_points = space_face_quad_formula.size();
 
-	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
 	std::vector<std::vector<Tensor<1, dim>>> face_solution_grads(n_face_q_points, std::vector<Tensor<1, dim>>(2*dim));
 
 	Tensor <2,dim> identity;
@@ -620,10 +620,8 @@ double SpaceTime<dim>::compute_space_time_error_qq(double t_qq, Vector<double> &
 	FEFaceValues<dim> space_fe_face_values(space_fe, space_face_quad_formula,
 					update_values | update_gradients | update_normal_vectors | update_JxW_values);
 	
-	const unsigned int space_dofs_per_cell = space_fe.n_dofs_per_cell();
 	const unsigned int n_q_points = space_quad_formula.size();
 	const unsigned int n_face_q_points = space_face_quad_formula.size();
-	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
 
 	// prepare data storage for error estimation
 	std::vector<Vector<double>> dt_U_cell(n_q_points, Vector<double>(dim + dim));
@@ -639,10 +637,12 @@ double SpaceTime<dim>::compute_space_time_error_qq(double t_qq, Vector<double> &
 	for (unsigned int k=0; k<dim; ++k)
 		identity[k][k] = 1.;
 
+	RightHandSide<dim> right_hand_side;
+	right_hand_side.set_time(t_qq);
+
 	for (const auto &space_cell : space_dof_handler.active_cell_iterators())
 	{
 		space_fe_values.reinit(space_cell);
-		space_cell->get_dof_indices(space_local_dof_indices);
 
 		// get all spatial function values and gradients
 		space_fe_values.get_function_values(dt_u_qq, dt_U_cell);
@@ -729,6 +729,49 @@ double SpaceTime<dim>::compute_space_time_error_qq(double t_qq, Vector<double> &
 
 			// second equation: (∂_t u, z^v) - (v, z^v)
 			error -=  (dt_u * z_v - v * z_v) * space_fe_values.JxW(q);
+		}
+
+		// face integral- / RHS- part of error 
+		for (const unsigned int space_face : space_cell->face_indices())
+		{
+			if (space_cell->at_boundary(space_face) && (space_cell->face(space_face)->boundary_id() == 2)) // face is at inhom. Neumann boundary
+			{
+				space_fe_face_values.reinit(space_cell, space_face);
+
+                // get all spatial function values on face
+				space_fe_face_values.get_function_values(z_qq, Z_face);
+
+				for (const unsigned int q : space_fe_face_values.quadrature_point_indices())
+				{
+					//////////////////////////////////////////////////////////////
+					// get RHS fucntion and dual solution for spatial quadrature point
+					//
+
+					// spatial quadrature point
+					const auto x_q = space_fe_values.quadrature_point(q);
+					
+					///////////
+					// RHS:
+					// precompute RHS value of g at (t_qq, x_q)
+					Tensor<1,dim> rhs_tensor_value;
+					for (unsigned int k=0; k < dim; k++)
+						rhs_tensor_value[k] = right_hand_side.value(x_q, k);
+
+					///////////
+					// DUAL:
+					// z^u
+					Tensor<1, dim> z_u;
+					for (unsigned int l = 0; l < dim; l++)
+						z_u[l] = Z_face[q][l];
+
+					////////////////////////////////////////////////////////////////////////
+					// assemble RHS linear form part, F(Z), of space-time error estimator 
+					//
+
+					// RHS equation: (g, z_u)
+					error +=  rhs_tensor_value * z_u * space_fe_face_values.JxW(q);
+				}
+			}
 		}
 	}
 
