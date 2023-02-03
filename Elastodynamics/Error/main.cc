@@ -626,39 +626,109 @@ double SpaceTime<dim>::compute_space_time_error_qq(double t_qq, Vector<double> &
 	std::vector<types::global_dof_index> space_local_dof_indices(space_dofs_per_cell);
 
 	// prepare data storage for error estimation
-	std::vector<Vector<double>> dt_U(n_q_points, Vector<double>(dim + dim));
+	std::vector<Vector<double>> dt_U_cell(n_q_points, Vector<double>(dim + dim));
 	
-	std::vector<Vector<double>> U(n_q_points, Vector<double>(dim + dim));
-	std::vector<std::vector<Tensor<1, dim>>> dx_U(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
+	std::vector<Vector<double>> U_cell(n_q_points, Vector<double>(dim + dim));
+	std::vector<std::vector<Tensor<1, dim>>> dx_U_cell(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
 
-	std::vector<Vector<double>> Z(n_q_points, Vector<double>(dim + dim));
-	std::vector<std::vector<Tensor<1, dim>>> dx_Z(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
+	std::vector<Vector<double>> Z_cell(n_q_points, Vector<double>(dim + dim));
+	std::vector<std::vector<Tensor<1, dim>>> dx_Z_cell(n_q_points, std::vector<Tensor<1, dim>>(dim + dim));
+	std::vector<Vector<double>> Z_face(n_face_q_points, Vector<double>(dim + dim));
+
+	Tensor <2,dim> identity;
+	for (unsigned int k=0; k<dim; ++k)
+		identity[k][k] = 1.;
 
 	for (const auto &space_cell : space_dof_handler.active_cell_iterators())
 	{
-		sapce_fe_values.reinit(space_cell);
+		space_fe_values.reinit(space_cell);
 		space_cell->get_dof_indices(space_local_dof_indices);
 
 		// get all spatial function values and gradients
-		space_fe_values.get_function_values(dt_u_qq, dt_U);
+		space_fe_values.get_function_values(dt_u_qq, dt_U_cell);
 
-		space_fe_values.get_function_values(u_qq, U);
-		space_fe_values.get_function_gradients(u_qq, dx_U);
+		space_fe_values.get_function_values(u_qq, U_cell);
+		space_fe_values.get_function_gradients(u_qq, dx_U_cell);
 
-		space_fe_values.get_function_values(z_qq, Z);
-		space_fe_values.get_function_gradients(z_qq, dx_Z);
+		space_fe_values.get_function_values(z_qq, Z_cell);
+		space_fe_values.get_function_gradients(z_qq, dx_Z_cell);
 
 		for (const unsigned int q : space_fe_values.quadrature_point_indices())
 		{
-			// TODO: continue with error estimator here!!!
+			//////////////////////////////////////////////////////////////
+			// get primal and dual solution for spatial quadrature point
+			//
+			
+			////////////////////
+			// first equation
+			//
+
+			///////////
+			// PRIMAL:
+
+			// ∂_t v
+			Tensor<1, dim> dt_v;
+			for (unsigned int l = 0; l < dim; l++)
+				dt_v[l] = dt_U_cell[q][l+dim]; // shift index by dim
+
+			// ε(u) = 0.5 * (∇_x u + (∇_x u)^T)
 			Tensor<2, dim> symm_grad_u;
 			for (unsigned int l = 0; l < dim; l++)
 				for (unsigned int m = 0; m < dim; m++)
-					symm_grad_u[l][m] = 0.5 * (face_solution_grads[q][l][m] + face_solution_grads[q][m][l]);
+					symm_grad_u[l][m] = 0.5 * (dx_U_cell[q][l][m] + dx_U_cell[q][m][l]);
 
-			const Tensor<2, dim> stress_tensor = 2. * mu * symm_grad_u + lambda * trace(symm_grad_u) * identity;
+			// σ(u) = 2μ ε(u) + λ tr(ε(u))
+			Tensor<2, dim> stress_u = 2. * mu * symm_grad_u + lambda * trace(symm_grad_u) * identity;
 
-			error += stress_tensor * space_fe_values.normal_vector(q) * space_fe_values.JxW(q);
+			///////////
+			// DUAL:
+
+			// z^u
+			Tensor<1, dim> z_u;
+			for (unsigned int l = 0; l < dim; l++)
+				z_u[l] = Z_cell[q][l];
+
+			// ε(z^u) = 0.5 * (∇_x z^u + (∇_x z^u)^T)
+			Tensor<2, dim> symm_grad_z_u;
+			for (unsigned int l = 0; l < dim; l++)
+				for (unsigned int m = 0; m < dim; m++)
+					symm_grad_z_u[l][m] = 0.5 * (dx_Z_cell[q][l][m] + dx_Z_cell[q][m][l]);
+
+			////////////////////
+			// second equation
+			//
+
+            ///////////
+            // PRIMAL:
+
+			// ∂_t u
+			Tensor<1, dim> dt_u;
+			for (unsigned int l = 0; l < dim; l++)
+				dt_u[l] = dt_U_cell[q][l];
+
+			// v
+			Tensor<1, dim> v;
+			for (unsigned int l = 0; l < dim; l++)
+				v[l] = U_cell[q][l+dim]; // shift index by dim
+
+			///////////
+			// DUAL:
+
+			// z^v
+			Tensor<1, dim> z_v;
+			for (unsigned int l = 0; l < dim; l++) 
+				z_v[l] = Z_cell[q][l+dim]; // shift index by dim
+
+			////////////////////////////////////////////////////////////////////////
+			// assemble bilinear form part, -A(U)(Z), of space-time error estimator 
+			//
+			// NOTE: The minus sign is needed since we have η = -A(U)(Z) + F(Z).
+
+			// first equation: (∂_t v, z^u) + (σ(u), ε(z^u))
+			error -= (dt_v * z_u + scalar_product(stress_u, symm_grad_z_u)) * space_fe_values.JxW(q);
+
+			// second equation: (∂_t u, z^v) - (v, z^v)
+			error -=  (dt_u * z_v - v * z_v) * space_fe_values.JxW(q);
 		}
 	}
 
@@ -698,6 +768,7 @@ void SpaceTime<dim>::run() {
 		// remove old logfiles
 		std::remove("python_goal_func_error.txt");
 		std::remove("cpp_goal_func_error.txt");
+		std::remove("dealii_estimator_error.txt");
 
 		////////////////////////////////////////////
 		// initial value: u(0)
@@ -815,6 +886,10 @@ void SpaceTime<dim>::run() {
 			// copmute the error estimator fot the space-time residual
 			double space_time_error = compute_space_time_error(slabs[k], U_r[k], Z_h[k]);
 			std::cout << "η = " << space_time_error << std::endl;
+
+			// output the error estimator value into a log file
+			std::ofstream estimator_out("dealii_estimator_error.txt", std::ios_base::app);
+			estimator_out << slab_t << "," << space_time_error << std::endl;
 
 			///////////////////////
 			// prepare next slab
