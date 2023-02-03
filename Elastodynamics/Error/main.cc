@@ -302,7 +302,7 @@ public:
 private:
 	void make_grids();
 	void setup_system(std::shared_ptr<Slab> &slab, unsigned int k);
-	void compute_functional_values(const unsigned int refinement_cycle, unsigned int slab_number);
+	Tensor<1,dim> compute_functional_values(std::shared_ptr<Slab> &slab, Vector<double> &slab_u);
 	Tensor<1,dim> compute_normal_stress(Vector<double> space_solution);
 
 	std::string problem_name;
@@ -485,57 +485,37 @@ void SpaceTime<dim>::setup_system(std::shared_ptr<Slab> &slab, unsigned int k) {
 }
 
 template<int dim>
-void SpaceTime<dim>::compute_functional_values(const unsigned int refinement_cycle, unsigned int slab_number)
+Tensor<1, dim> SpaceTime<dim>::compute_functional_values(std::shared_ptr<Slab> &slab, Vector<double> &slab_u)
 {
-	std::string output_dir = "../Data/3D/" + problem_name + "/cycle=" + std::to_string(refinement_cycle) + "/";
+	Tensor<1, dim> normal_stress;
 
-	std::vector< std::tuple<double, double> > stress_x_values;
-	std::vector< std::tuple<double, double> > stress_y_values;
-	std::vector< std::tuple<double, double> > stress_z_values;
+	FEValues<1> time_fe_values(slab->time_fe, QGauss<1>(slab->time_fe.degree + 6), update_values | update_quadrature_points | update_JxW_values);
+	std::vector<types::global_dof_index> time_local_dof_indices(slab->time_fe.n_dofs_per_cell());	
 
-	unsigned int ii_ordered = 0;
-	for (auto time_point : time_support_points)
-	{
-	  if (slab_number > 0 && ii_ordered == 0)
+	for (const auto &time_cell : slab->time_dof_handler.active_cell_iterators()) {
+	  time_fe_values.reinit(time_cell);
+	  time_cell->get_dof_indices(time_local_dof_indices);
+
+	  for (const unsigned int qq : time_fe_values.quadrature_point_indices()) 
 	  {
-		ii_ordered++;
-		continue;
+	    // time quadrature point
+	    double t_qq = time_fe_values.quadrature_point(qq)[0];
+	    
+	    // get the FEM space solution at the quadrature point
+	    Vector<double> space_solution(space_dof_handler.n_dofs());
+		for (const unsigned int ii : time_fe_values.dof_indices())
+		{
+		  for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
+			space_solution(i) += slab_u(i + time_local_dof_indices[ii] * space_dof_handler.n_dofs()) * time_fe_values.shape_value(ii, qq);
+		}
+
+		Tensor<1, dim> normal_stress_qq = compute_normal_stress(space_solution);
+	    
+	    // add local contributions to global QoI
+		normal_stress += normal_stress_qq * time_fe_values.JxW(qq);
 	  }
-
-	  double t_qq = time_point.first;
-	  unsigned int ii = time_point.second;
-
-	  DataOut<3> data_out;
-	  data_out.attach_dof_handler(space_dof_handler);
-
-	  Vector<double> space_solution(space_dof_handler.n_dofs());
-	  for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
-		space_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
-
-	  Tensor<1, dim> normal_stress = compute_normal_stress(space_solution);
-	  stress_x_values.push_back(std::make_tuple(t_qq, normal_stress[0]));
-	  stress_y_values.push_back(std::make_tuple(t_qq, normal_stress[1]));
-	  stress_z_values.push_back(std::make_tuple(t_qq, normal_stress[2]));
 	}
-
-	// sort value vectors according to time
-	std::sort(stress_x_values.begin(), stress_x_values.end());
-	std::sort(stress_y_values.begin(), stress_y_values.end());
-	std::sort(stress_z_values.begin(), stress_z_values.end());
-
-	// output the values into log files
-	std::ofstream stress_x_out(output_dir + "stress_x.txt", std::ios_base::app);
-	std::ofstream stress_y_out(output_dir + "stress_y.txt", std::ios_base::app);
-	std::ofstream stress_z_out(output_dir + "stress_z.txt", std::ios_base::app);
-
-	for (auto &item : stress_x_values)
-		stress_x_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
-
-	for (auto &item : stress_y_values)
-		stress_y_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
-
-	for (auto &item : stress_z_values)
-		stress_z_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+	return normal_stress;
 }
 
 template<int dim>
@@ -610,6 +590,10 @@ void SpaceTime<dim>::run() {
 		  mkdir(dir, S_IRWXU);
 
 		std::string readin_dir = "../Data/ROM/cycle=" + std::to_string(cycle) + "/error_estimator/";
+
+		// remove old logfiles
+		std::remove("python_goal_func_error.txt");
+		std::remove("cpp_goal_func_error.txt");
 
 		////////////////////////////////////////////
 		// initial value: u(0)
@@ -708,8 +692,17 @@ void SpaceTime<dim>::run() {
 			// TODO: compute J(U_h) and J(U_r) on current slab
             // TODO: compute_functional_values(cycle, k); for U_h
 			// TODO: compute_functional_values(cycle, k); for U_r
-			std::cout << "PY: " << J_h[k] - J_r[k] << std::endl;
-			std::cout << "C++: " << "TODO" << std::endl;
+			double python_goal_func_error = J_h[k] - J_r[k];
+			std::cout << "PY: " << python_goal_func_error << std::endl;
+			double cpp_goal_func_error = compute_functional_values(slabs[k], U_h[k])[1] - compute_functional_values(slabs[k], U_r[k])[1];
+			std::cout << "C++: " << cpp_goal_func_error << std::endl;
+			
+			// output the values into log files
+			std::ofstream python_goal_out("python_goal_func_error.txt", std::ios_base::app);
+			std::ofstream cpp_goal_out("cpp_goal_func_error.txt", std::ios_base::app);
+			double slab_t = 0.5 * (slabs[k]->start_time + slabs[k]->end_time);
+			python_goal_out << slab_t << "," << python_goal_func_error << std::endl;
+			cpp_goal_out << slab_t << "," << cpp_goal_func_error << std::endl;
 
 			///////////////////////
 			// prepare next slab
@@ -720,6 +713,8 @@ void SpaceTime<dim>::run() {
 			for (unsigned int i = 0; i < space_dof_handler.n_dofs(); ++i)
 			  initial_solution(i) = solution(i + ii * space_dof_handler.n_dofs());
 		}
+
+		exit(2);
 
 		// refine mesh
 		if (cycle < max_n_refinement_cycles - 1)
