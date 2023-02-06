@@ -33,9 +33,14 @@ for i in range(len(stress['value'])):
         print("        Convergence rate: " + str((error[i]/error[i+1])))
     
 
+# plot error on matplotlib
+
+if PLOTTING:
+    plt.figure()
+    plt.plot(error[:-1])
+    plt.show()
+
 # name = diff[0] to string with 3 digits format
-
-
 
 
 
