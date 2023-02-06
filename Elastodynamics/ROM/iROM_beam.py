@@ -14,9 +14,10 @@ from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_i
 
 PLOTTING = False
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
+MOTHER_PATH = "/home/ifam/roth/Desktop/Code/dealii_dir/iROM/MORe_DWR/Elastodynamics/"
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
-cycle = "cycle=1"
+cycle = "cycle=0" # 1"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
 LOAD_SOLUTION = False
@@ -371,6 +372,21 @@ for i in range(slab_properties["n_total"]):
     J_r_t[i] = projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
     J_h_t[i] = primal_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
 
+# create directors for SAVE_PATH + error_estimator
+try:
+    os.mkdir(SAVE_PATH + "error_estimator/")
+except FileExistsError:
+    pass
+
+# output some information needed for error estimator
+for i in range(slab_properties["n_total"]):
+    np.savetxt(SAVE_PATH + f"error_estimator/fullorder_primal_solution_{i:05}.txt", primal_solutions_slab["value"][i]) # U_h
+    np.savetxt(SAVE_PATH + f"error_estimator/reduced_primal_solution_{i:05}.txt", projected_reduced_solutions_slab["value"][i])  # U_r 
+    np.savetxt(SAVE_PATH + f"error_estimator/fullorder_dual_solution_{i:05}.txt", dual_solutions_slab["value"][i]) # Z_h  
+np.savetxt(SAVE_PATH + f"error_estimator/fullorder_goal_func_vals.txt", J_h_t)
+np.savetxt(SAVE_PATH + f"error_estimator/reduced_goal_func_vals.txt", J_r_t)
+print(SAVE_PATH + f"error_estimator/reduced_goal_func_vals.txt")
+quit()
 
 # %% Error evaluations for primal and dual solutions
 
