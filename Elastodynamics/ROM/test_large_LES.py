@@ -79,39 +79,11 @@ dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 * (A/6 - B*k/30,     -2*A/3 + B*k/15,   A/2 + 2*B*k/15) (U_n+1)     (F, phi_n+1)
 """
 
-weight_mass_matrix = 1.#1.e4
-
-first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
-
-# print norm of first and last time step
-print(" ")
-print(f"Norm of first time step bf adding : {np.linalg.norm(first_time_step)}")
-print(f"Norm of last time step bf adding  : {np.linalg.norm(last_time_step)}")
-print(f"Norm of diff bf adding            : {np.linalg.norm(first_time_step - last_time_step)}")
-print(" ")
-
-
-
 # * System Matrix = system_matrix + weight_mass_matrix * mass_matrix
-matrix_no_bc = matrix_no_bc + weight_mass_matrix * mass_matrix_no_bc
+matrix_no_bc = matrix_no_bc + mass_matrix_no_bc
 
 mass_matrix_last_time_step = np.zeros((mass_matrix_no_bc.shape[0],mass_matrix_no_bc.shape[1]))
 mass_matrix_last_time_step[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-
-# * check if mass matrix is added
-
-first_time_step = matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-last_time_step = matrix_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:].toarray()
-
-# print norm of first and last time step
-print(f"Norm of first time step aft adding: {np.linalg.norm(first_time_step)}")
-print(f"Norm of last time step aft adding : {np.linalg.norm(last_time_step)}")
-print(f"Norm of diff aft adding           : {np.linalg.norm(first_time_step - last_time_step)}")
-print(" ")
-print(f"Norm of mass matrix               : {np.linalg.norm(mass_matrix_no_bc.toarray())}")
-
-
 
 # %% Enforcing BC to primal und dual systems
 primal_matrix, primal_system_rhs = apply_boundary_conditions(
@@ -123,7 +95,6 @@ dual_matrix, dual_system_rhs = apply_boundary_conditions(
 # %% read in IC
 initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 
-
 # ------------
 # %% Primal FOM solve
 start_execution = time.time()
@@ -131,9 +102,9 @@ start_execution = time.time()
 primal_solutions = {"value": [], "time": []}
 for i in range(slab_properties["n_total"]):
     if i == 0:
-        primal_rhs = primal_system_rhs[i].copy() + weight_mass_matrix * mass_matrix_last_time_step.dot(np.zeros(primal_matrix.shape[0]))
+        primal_rhs = primal_system_rhs[i].copy() + mass_matrix_last_time_step.dot(np.zeros(primal_matrix.shape[0]))
     else:
-        primal_rhs = primal_system_rhs[i].copy() + weight_mass_matrix * mass_matrix_last_time_step.dot(primal_solutions["value"][-1])
+        primal_rhs = primal_system_rhs[i].copy() + mass_matrix_last_time_step.dot(primal_solutions["value"][-1])
     primal_solution = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
     
     primal_solutions["value"].append(primal_solution)
