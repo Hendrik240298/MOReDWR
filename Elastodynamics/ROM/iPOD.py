@@ -309,8 +309,9 @@ def reduce_vector(vector, pod_basis):
     
     return reduced_vector
     
-def project_vector(reduced_vector, pod_basis): 
-          
+    
+def project_sub_vector(reduced_vector, pod_basis):
+        
     n_dofs_u = pod_basis["displacement"].shape[0]
     n_dofs_v = pod_basis["velocity"].shape[0]
     
@@ -321,6 +322,24 @@ def project_vector(reduced_vector, pod_basis):
 
     vector[:n_dofs_u] = pod_basis["displacement"].dot(reduced_vector[:size_u])
     vector[n_dofs_u:] = pod_basis["velocity"].dot(reduced_vector[size_u:])
+    
+    return vector
+    
+def project_vector(reduced_vector, pod_basis): 
+
+    n_dofs = pod_basis["displacement"].shape[0]
+    size_u = pod_basis["displacement"].shape[1]
+    size_v = pod_basis["velocity"].shape[1]
+
+    n_rows_sub_vec = 2*n_dofs
+    n_rows_sub_red_vec = size_u + size_v
+    vec_per_row = int(reduced_vector.shape[0]/(size_u + size_v))
+    
+    vector = np.zeros([vec_per_row*n_rows_sub_vec, ])
+    
+    for i in range(vec_per_row):
+        vector[i*n_rows_sub_vec:(i+1)*n_rows_sub_vec] = \
+            project_sub_vector(reduced_vector[i*n_rows_sub_red_vec:(i+1)*n_rows_sub_red_vec],pod_basis)
     
     return vector    
     
