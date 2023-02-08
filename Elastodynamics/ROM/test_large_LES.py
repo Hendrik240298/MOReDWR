@@ -41,8 +41,8 @@ if not os.path.exists(SAVE_PATH):
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 
 ENERGY_DUAL = 0.999999
-ENERGY_PRIMAL = {"displacement": 0.999999,
-                 "velocity":     0.999999}
+ENERGY_PRIMAL = {"displacement": 0.99999999,
+                 "velocity":     0.99999999}
 
 # %% read in properties connected to discretization
 n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretization(
@@ -78,7 +78,7 @@ matrix_no_bc_for_dual = matrix_no_bc.copy()
 """
 
 # * System Matrix = system_matrix + weight_mass_matrix * mass_matrix
-matrix_no_bc = matrix_no_bc + mass_matrix_no_bc
+matrix_no_bc= matrix_no_bc + mass_matrix_no_bc
 
 mass_matrix_up_right_no_bc = np.zeros((mass_matrix_no_bc.shape[0],mass_matrix_no_bc.shape[1]))
 mass_matrix_up_right_no_bc[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
@@ -106,7 +106,6 @@ dual_matrix_no_bc = matrix_no_bc_for_dual.T + mass_matrix_no_bc.T
 primal_matrix, primal_system_rhs = apply_boundary_conditions(
     matrix_no_bc, rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
 
-print(type(dual_matrix_no_bc))
 
 dual_matrix, dual_system_rhs = apply_boundary_conditions(
     dual_matrix_no_bc, dual_rhs_no_bc, OUTPUT_PATH + cycle + "/boundary_id.txt")
@@ -328,8 +327,8 @@ for i in range(slab_properties["n_total"]):
     # projected_slab["value"] = alpha*primal_solutions_slab["value"][i]
     
     if i > 0:
-        # residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][-2])
-        residual_slab = - matrix_no_bc_for_dual.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy()
+        residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][-2])
+        # residual_slab = - matrix_no_bc_for_dual.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy()
     else:
         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() 
     
@@ -343,7 +342,7 @@ for i in range(slab_properties["n_total"]):
     # temporal_interval_error.append((np.dot(dual_projected_slab["value"], residual_slab)))  # TODO write as residual_slab.dot(dual_projected_slab["value"])
     temporal_interval_error.append( dual_projected_slab["value"].dot(residual_slab))  # TODO write as residual_slab.dot(dual_projected_slab["value"])
 
-    temporal_solution_diff_norm.append(np.linalg.norm(primal_solutions_slab["value"][i] - projected_reduced_solutions_slab["value"][-1])/np.linalg.norm(primal_solutions_slab["value"][i]))
+    temporal_solution_diff_norm.append(np.linalg.norm(primal_solutions_slab["value"][i] - projected_reduced_solutions_slab["value"][-1])) #/np.linalg.norm(primal_solutions_slab["value"][i]))
     goal_func_error.append((primal_solutions_slab["value"][i] - projected_reduced_solutions_slab["value"][-1]).dot(dual_rhs_no_bc[i]))
 
 
@@ -377,6 +376,7 @@ true_abs_error = np.sum(np.abs(J_h_t-J_r_t))
 estimated_error = np.abs(np.sum(temporal_interval_error))
 estimated_abs_error = np.sum(np.abs(temporal_interval_error))
 efficiency = true_error/estimated_error
+
 print("J_h:                 " + str(np.sum(J_h_t)))
 print("J_r:                 " + str(np.sum(J_r_t)))
 print("true error:          " + str(true_error))
