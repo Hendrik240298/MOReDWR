@@ -29,3 +29,7 @@ Elastodynamics/ROM/iROM.h
 Elastodynamics/Error/dealii_estimator_error.txt
 Elastodynamics/Error/cpp_goal_func_error.txt
 Elastodynamics/Error/python_goal_func_error.txt
+Elastodynamics/ROM/images/cost_functional.png
+Elastodynamics/ROM/images/temporal_solution_diff_norm.png
+Elastodynamics/ROM/images/norm_dual_and_res.png
+Elastodynamics/ROM/images/estimate_vs_true_error.png
