@@ -128,6 +128,9 @@ initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 
 SKIP_PRIMAL = False
 
+
+slab_properties["n_total"] = 100
+
 if not SKIP_PRIMAL:
     start_execution = time.time()
 
@@ -319,14 +322,14 @@ for i in range(slab_properties["n_total"]):
     projected_reduced_solutions_slab["value"].append(project_vector(primal_solution_reduced, pod_basis))
     projected_reduced_solutions_slab["time"].append(slab_properties["time_points"][i])
 
-
     dual_projected_slab = {"value": [], "time": []}
     
-    dual_projected_slab["value"] = dual_solutions_slab["value"][i]
+    dual_projected_slab["value"] = dual_solutions_slab["value"][i] #[i]
     # projected_slab["value"] = alpha*primal_solutions_slab["value"][i]
     
     if i > 0:
-        residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][-2])
+        # residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][-2])
+        residual_slab = - matrix_no_bc_for_dual.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy()
     else:
         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() 
     
@@ -395,7 +398,7 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("norm")
-plt.xlim([0, slab_properties["n_total"]*time_step_size])
+# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/temporal_solution_diff_norm.png')
 
 plt.show()
@@ -463,7 +466,7 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("$J(u)$")
-plt.xlim([0, slab_properties["n_total"]*time_step_size])
+# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/cost_functional.png')
 
 plt.show()
@@ -472,7 +475,7 @@ plt.show()
 # plot temporal evolution of error and error estimate
 plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
-         np.array(temporal_interval_error), c='#1f77b4', label="estimate")
+         (np.array(temporal_interval_error)), c='#1f77b4', label="estimate")
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
          (J_h_t-J_r_t), color='r', label="error")
 plt.grid()
@@ -480,7 +483,7 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("$error$")
-plt.xlim([0, slab_properties["n_total"]*time_step_size])
+# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/estimate_vs_true_error.png')
 
 plt.show()
