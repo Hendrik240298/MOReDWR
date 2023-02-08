@@ -42,6 +42,7 @@ mass_matrix_no_bc, _ = read_in_LES(OUTPUT_PATH + cycle, "/mass_matrix_no_bc.txt"
 
 _, dual_rhs_no_bc = read_in_LES(OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "dual_rhs_no_bc")
 
+# ? Is this correct? #TODO ask JR
 dual_matrix_no_bc = matrix_no_bc.T + mass_matrix_no_bc.T
 
 # %% Enforcing BC to primal und dual systems 
@@ -312,18 +313,18 @@ for i in range(slab_properties["n_total"]):
     # primal ROM solve
     projected_reduced_solutions, reduced_solution_old = solve_primal_ROM_step(projected_reduced_solutions, reduced_solution_old, D_reduced, C_reduced, rhs_no_bc[i], pod_basis, slab_properties, n_dofs, i)
 
-    perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+1])
-    perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+2])
+    # perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+1])
+    # perfect_reduced_solutions["value"].append(primal_solutions["value"][i*slab_properties["n_time_unknowns"]+2])
 
-    perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+1])
-    perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+2])
+    # perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+1])
+    # perfect_reduced_solutions["time"].append(primal_solutions["time"][i*slab_properties["n_time_unknowns"]+2])
  
-    print(f"first:   {perfect_reduced_solutions['time'][-2]}")
-    print(f"second:  {perfect_reduced_solutions['time'][-1]}")
+    # print(f"first:   {perfect_reduced_solutions['time'][-2]}")
+    # print(f"second:  {perfect_reduced_solutions['time'][-1]}")
 
 
-    # temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
-    temporal_interval_error.append(error_estimator(perfect_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
+    temporal_interval_error.append(error_estimator(projected_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
+    # temporal_interval_error.append(error_estimator(perfect_reduced_solutions, dual_solutions, matrix_no_bc, rhs_no_bc[i].copy(), slab_properties))
 
     temporal_interval_error_relative.append(temporal_interval_error[-1] / \
                             np.abs(temporal_interval_error[-1] + evaluate_cost_functional(projected_reduced_solutions,dual_rhs_no_bc[i].copy(), slab_properties,i)))
