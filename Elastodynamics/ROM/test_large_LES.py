@@ -49,7 +49,7 @@ n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretiz
     OUTPUT_PATH + cycle)
 
 slab_properties["n_time_unknowns"] += 1 # since we use whole block system
-print("n_time_unknowns", slab_properties["n_time_unknowns"])
+# print("n_time_unknowns", slab_properties["n_time_unknowns"])
 # %% Reading in matrices and rhs without bc
 matrix_no_bc, rhs_no_bc = read_in_LES(
     OUTPUT_PATH + cycle, "/matrix_no_bc.txt", "primal_rhs_no_bc")
@@ -177,6 +177,7 @@ last_dual_solution = np.zeros((n_dofs["time_step"],))
 dual_solutions_slab = {"value": [],
                   "time": []}
 
+
 for i in list(range(slab_properties["n_total"]))[::-1]:
     if i == len(list(range(slab_properties["n_total"])))-1:
         print("I was here")
@@ -184,13 +185,9 @@ for i in list(range(slab_properties["n_total"]))[::-1]:
     else:
         dual_rhs = dual_system_rhs[i].copy() + mass_matrix_down_left.dot(dual_solutions_slab["value"][-1])
     dual_solution =  scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
-    
-    # if i != len(list(range(slab_properties["n_total"])))-1:
-    #     print(i, np.linalg.norm(dual_solution[-n_dofs["time_step"]:] - dual_solutions_slab["value"][-1][:n_dofs["time_step"]]))
+
     dual_solutions_slab["value"].append(dual_solution)
     dual_solutions_slab["time"].append(slab_properties["time_points"][i])
-    # print index i and time
-    # print(i, slab_properties["time_points"][i])
 
 
 dual_solutions_slab["value"] = dual_solutions_slab["value"][::-1]
@@ -215,7 +212,6 @@ for i, dual_solution in enumerate(dual_solutions["value"]):
             dual_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=dual_solutions["time"][i])
 
 
-
 # %% Definition and initialization of ROM ingredients
 
 bunch_size = 1  # len(primal_solutions)  # 1
@@ -223,9 +219,7 @@ bunch_size = 1  # len(primal_solutions)  # 1
 total_energy = {"displacement": 0, "velocity": 0}
 pod_basis = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
 bunch = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
-singular_values = {"displacement": np.empty(
-    [0, 0]), "velocity": np.empty([0, 0])}
-
+singular_values = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
 
 for primal_solution in primal_solutions["value"][0:2]:# [0:400]:
     pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
@@ -271,7 +265,6 @@ perfect_reduced_solutions = {"value": [primal_solutions["value"][0]],
 last_projected_reduced_solution = projected_reduced_solutions
 projected_reduced_solutions_before_enrichment = []
 
-
 temporal_interval_error = []
 temporal_interval_error_shorti = []
 temporal_interval_error_incidactor = []
@@ -282,8 +275,6 @@ temporal_dual_norm = []
 temporal_solution_diff_norm = []
 
 goal_func_error = []
-
-
 
 tol = 5e-4/(slab_properties["n_total"])
 tol = 1e-4/3
@@ -296,7 +287,7 @@ print("tol_rel       = " + str(tol_rel))
 print("tol           = " + str(tol))
 print(f"forward steps = {forwardsteps}")
 print(" ")
-extime_solve = 0.0
+extime_rom_solve = 0.0
 extime_dual_solve = 0.0
 extime_error = 0.0
 extime_update = 0.0
@@ -304,44 +295,45 @@ extime_update = 0.0
 n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + \
     pod_basis["velocity"].shape[1]
 
-
 # alpha = 1.1
 projected_reduced_solutions_slab = {"value": [], "time": []}
 
 print("n_times-unk: " + str(slab_properties["n_time_unknowns"] ))
 start_execution = time.time()
+
+dual_solution = np.zeros(dual_matrix.shape[0])
+for j in range(1):
+    dual_rhs = dual_system_rhs[0].copy() + mass_matrix_down_left.dot(dual_solution)
+    dual_solution = scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
+    
+primal_solution_reduced = np.zeros(system_matrix_reduced.shape[0])
 for i in range(slab_properties["n_total"]):
 
     # solve really the rom system but full 3x3 block system
-    if i == 0:
-        primal_rhs_reduced = reduce_vector(primal_system_rhs[i].copy(), pod_basis) + mass_matrix_up_right_reduced.dot(np.zeros(system_matrix_reduced.shape[0]))
-    else:
-        primal_rhs_reduced = reduce_vector(primal_system_rhs[i].copy(), pod_basis) + mass_matrix_up_right_reduced.dot(primal_solution_reduced)
+    extime_rom_solve_start = time.time()
+
+    primal_rhs_reduced = reduce_vector(primal_system_rhs[i].copy(), pod_basis) + mass_matrix_up_right_reduced.dot(primal_solution_reduced)
     # primal_solution_reduced = scipy.sparse.linalg.spsolve(system_matrix_reduced, primal_rhs_reduced)
     primal_solution_reduced = np.linalg.solve(system_matrix_reduced, primal_rhs_reduced)
-        
+    
+    extime_rom_solve += time.time() - extime_rom_solve_start
+    
     projected_reduced_solutions_slab["value"].append(project_vector(primal_solution_reduced, pod_basis))
     projected_reduced_solutions_slab["time"].append(slab_properties["time_points"][i])
-        
-    dual_projected_slab = {"value": [], "time": []}
     
-    dual_projected_slab["value"] = dual_solutions_slab["value"][i] #[i]
-    # projected_slab["value"] = alpha*primal_solutions_slab["value"][i]
+    # TODO: compute dual solution in loop
+    # implement FOM variant first
+    
+    dual_projected_slab = {"value": [], "time": []}
+    dual_projected_slab["value"] = dual_solutions_slab["value"][i] # dual_solution
     
     if i > 0:
         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][-2])
         # residual_slab = - matrix_no_bc_for_dual.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy()
     else:
         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() 
-    
-    temporal_residual_norm.append(np.linalg.norm(residual_slab))
-    temporal_dual_norm.append(np.linalg.norm(dual_projected_slab["value"]))
-    if np.linalg.norm(residual_slab) < 1e-6:
-        print(f"residual norm is zero at {i}")
-    if np.linalg.norm(dual_projected_slab["value"]) < 1e-6:
-        print(f"dual norm is zero at {i}")
         
-    # temporal_interval_error.append((np.dot(dual_projected_slab["value"], residual_slab)))  # TODO write as residual_slab.dot(dual_projected_slab["value"])
+    
     temporal_interval_error.append( dual_projected_slab["value"].dot(residual_slab))  # TODO write as residual_slab.dot(dual_projected_slab["value"])
     goal_func_on_slab = projected_reduced_solutions_slab["value"][-1].dot(dual_rhs_no_bc[i])
     
@@ -349,6 +341,12 @@ for i in range(slab_properties["n_total"]):
     temporal_interval_error_incidactor.append(0)
     
     # analysis
+    temporal_residual_norm.append(np.linalg.norm(residual_slab))
+    temporal_dual_norm.append(np.linalg.norm(dual_projected_slab["value"]))
+    if np.linalg.norm(residual_slab) < 1e-6:
+        print(f"residual norm is zero at {i}")
+    if np.linalg.norm(dual_projected_slab["value"]) < 1e-6:
+        print(f"dual norm is zero at {i}")
     temporal_solution_diff_norm.append(np.linalg.norm(primal_solutions_slab["value"][i] - projected_reduced_solutions_slab["value"][-1])) #/np.linalg.norm(primal_solutions_slab["value"][i]))
     goal_func_error.append((primal_solutions_slab["value"][i] - projected_reduced_solutions_slab["value"][-1]).dot(dual_rhs_no_bc[i]))
     
@@ -390,6 +388,7 @@ execution_time_ROM = end_execution - start_execution
 
 print("FOM time:         " + str(execution_time_FOM))
 print("ROM time:         " + str(execution_time_ROM))
+print("Solely ROM LES:   " + str(extime_rom_solve))
 print("speedup: act/max: " + str(execution_time_FOM/execution_time_ROM) + " / " + str(len(temporal_interval_error_incidactor)/(np.sum(temporal_interval_error_incidactor))))
 print("Size ROM: u/v     " + str(pod_basis["displacement"].shape[1]) + " / " + str(pod_basis["velocity"].shape[1]))
 print("FOM solves:       " + str(np.sum(temporal_interval_error_incidactor)
@@ -406,8 +405,6 @@ for i in range(slab_properties["n_total"]):
     J_r_t[i] = projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
     J_h_t[i] = primal_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
 
-print("J_r(0): " + str(J_r_t[0]))
-print("J_h(0): " + str(J_h_t[0]))
 true_error = np.abs(np.sum(J_h_t-J_r_t))
 true_abs_error = np.sum(np.abs(J_h_t-J_r_t))
 estimated_error = np.abs(np.sum(temporal_interval_error))
@@ -428,6 +425,7 @@ print("efficiency abs:      " + str(true_abs_error/estimated_abs_error))
 time_step_size = 40.0 / (slab_properties["n_total"])
 
 
+plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
         temporal_solution_diff_norm, color='r', label="temporal_solution_diff_norm")
 plt.grid()
@@ -435,14 +433,12 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("norm")
-# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/temporal_solution_diff_norm.png')
-
 plt.show()
 
 
-
 # create figure and axis objects with subplots()
+plt.rcParams["figure.figsize"] = (10, 6)
 fig,ax = plt.subplots()
 # make a plot
 ax.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
@@ -454,46 +450,12 @@ ax2=ax.twinx()
 # make a plot with different y-axis using second axis object
 ax2.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1], temporal_dual_norm, c='#1f77b4', label="temporal_dual_norm")
 ax2.set_ylabel("dual norm")
-plt.show()
 fig.savefig('images/norm_dual_and_res.png')
-
-
-# plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
-        
-# plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
-#         temporal_dual_norm, c='#1f77b4', label="temporal_dual_norm")
-# plt.grid()
-# plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-# plt.xlabel('$t [$s$]$')
-# plt.ylabel("norm")
-# plt.xlim([0, slab_properties["n_total"]*time_step_size])
-# plt.savefig('images/norm_dual_and_res.png')
-
-# plt.show()
-
-
-# plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
-#         [np.linalg.norm(dual_rhs_no_bc[i]) for i in range(len(dual_rhs_no_bc))], color='r', label="dual_rhs_no_bc")
-# plt.grid()
-# plt.legend()
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-# plt.xlabel('$t [$s$]$')
-# plt.ylabel("norm")
-# plt.xlim([0, slab_properties["n_total"]*time_step_size])
-# plt.show()
-
-
-# pointwise displacement
-# plt.plot(np.arange(0, slab_properties["n_total"]*n_dofs["solperstep"]+1),
-#          tuple(primal_solutions["value"][i][index2measuredisp] for i in range(slab_properties["n_total"]*n_dofs["solperstep"]+1)), label="pw displacement -fom")
-# plt.plot(np.arange(0, slab_properties["n_total"]*n_dofs["solperstep"]+1),
-#          tuple(projected_reduced_solutions["value"][i][index2measuredisp] for i in range(n_dofs["solperstep"]*slab_properties["n_total"]+1)), label="pw displacement -rom")
-# plt.legend()
-# plt.show()
+plt.show()
 
 
 # Cost functional
+plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
          J_h_t, color='r', label="$u_h$")
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
@@ -503,9 +465,7 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("$J(u)$")
-# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/cost_functional.png')
-
 plt.show()
 
 
@@ -520,7 +480,21 @@ plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 plt.xlabel('$t [$s$]$')
 plt.ylabel("$error$")
-# plt.xlim([0, slab_properties["n_total"]*time_step_size])
 plt.savefig('images/estimate_vs_true_error.png')
+plt.show()
 
+
+# plot temporal evolution of relative error and error estimate
+plt.rcParams["figure.figsize"] = (10, 6)
+plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
+         np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
+plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
+         np.abs((J_h_t-J_r_t)/J_h_t), color='r', label="error - relative")
+plt.grid()
+plt.legend()
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t [$s$]$')
+plt.ylabel("$error$")
+plt.yscale('log')
+plt.savefig('images/relative_estimate_vs_true_error.png')
 plt.show()
