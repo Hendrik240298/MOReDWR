@@ -17,7 +17,7 @@ CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
-cycle = "cycle=5"
+cycle = "cycle=3"
 SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
 # SAVE_PATH = cycle + "/output_ROM/"
 
@@ -378,6 +378,7 @@ for i in range(n_slabs):
     if temporal_interval_error_relative[-1] > tol_rel:
     # np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[-1],  mass_matrix_no_bc.dot(projected_reduced_solutions[-1]))+temporal_interval_error[-1]) > tol_rel:
         temporal_interval_error_incidactor[-1] = 1
+        pod_basis, reduced_system_matrix, reduced_jump_matrix, projected_reduced_solutions[-1], singular_values, total_energy = ROM_update(
                      pod_basis, 
                      # space_time_pod_basis, 
                      reduced_system_matrix, 
@@ -505,7 +506,7 @@ J_r_t_before_enrichement = np.empty([n_slabs, 1])
 for i in range(n_slabs):
     J_r_t[i] = np.dot(projected_reduced_solutions[i], mass_matrix_no_bc.dot(projected_reduced_solutions[i]))
     J_r_t_before_enrichement[i] = np.dot(projected_reduced_solutions_before_enrichment[i], mass_matrix_no_bc.dot(projected_reduced_solutions_before_enrichment[i]))
-    print(np.mean(projected_reduced_solutions[i] -projected_reduced_solutions_before_enrichment[i]))
+    # print(np.mean(projected_reduced_solutions[i] -projected_reduced_solutions_before_enrichment[i]))
 J["u_r"] = np.sum(J_r_t) 
 
 print("J(u_h) =", J["u_h"])
