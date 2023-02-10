@@ -135,7 +135,7 @@ initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 SKIP_PRIMAL = False
 
 
-slab_properties["n_total"] = 100
+# slab_properties["n_total"] = 100
 
 if not SKIP_PRIMAL:
     start_execution = time.time()
@@ -314,7 +314,7 @@ temporal_solution_diff_norm = []
 goal_func_error = []
 
 tol = 5e-4/(slab_properties["n_total"])
-tol = 1e-4/3
+tol = 1e-5
 tol_rel = 1e-2
 tol_dual = 5e-1
 forwardsteps = 5
@@ -340,149 +340,206 @@ projected_reduced_solutions_slab = {"value": [], "time": []}
 start_execution_whole = time.time()
 
     
-primal_solution_reduced = np.zeros(system_matrix_reduced.shape[0])
-len_block_evaluation = slab_properties["n_total"] 
-slab_properties["n_total"] = len_block_evaluation
-temporal_interval_error_incidactor = np.zeros(len_block_evaluation)
-    
-# solve dual system
-# projected_dual_reduced_solutions_slab = [np.zeros(mass_matrix_down_left.shape[0])] # not really reduced
-# for i in range(len_block_evaluation):
-#     dual_rhs = dual_system_rhs[0].copy() + mass_matrix_down_left.dot(projected_dual_reduced_solutions_slab[-1])
-#     projected_dual_reduced_solutions_slab.append(scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs))
-# projected_dual_reduced_solutions_slab = projected_dual_reduced_solutions_slab[1:]
-# projected_dual_reduced_solutions_slab = projected_dual_reduced_solutions_slab[::-1]
 
-max_index_history = []
-for iteration in range(100):
-    start_execution = time.time()
-    primal_reduced_solutions = [np.zeros(system_matrix_reduced.shape[0])]
-    # solve reduced primal system
-    for i in range(len_block_evaluation):
-        primal_rhs_reduced = reduce_vector(primal_system_rhs[i].copy(), pod_basis) + mass_matrix_up_right_reduced.dot(primal_reduced_solutions[-1])
-        primal_reduced_solutions.append(np.linalg.solve(system_matrix_reduced, primal_rhs_reduced))
-    primal_reduced_solutions = primal_reduced_solutions[1:]
-    
-    # solve reduced dual problem
-    dual_reduced_solutions_slab = [np.zeros(mass_matrix_down_left_reduced.shape[0])] # not really reduced
-    for i in range(len_block_evaluation):
-        dual_rhs_reduced = reduce_vector(dual_system_rhs[0].copy(), pod_basis_dual)  + mass_matrix_down_left_reduced.dot(dual_reduced_solutions_slab[-1])
-        dual_reduced_solutions_slab.append(np.linalg.solve(dual_matrix_reduced, dual_rhs_reduced))
-    dual_reduced_solutions_slab = dual_reduced_solutions_slab[1:]
-    dual_reduced_solutions_slab = dual_reduced_solutions_slab[::-1]
-    extime_rom_solve += time.time() - start_execution
 
-    start_execution = time.time()    
-    # project primal solution up
-    projected_reduced_solutions_slab = {"value": [], "time": []} 
-    for i in range(len_block_evaluation):
-        projected_reduced_solutions_slab["value"].append(project_vector(primal_reduced_solutions[i], pod_basis))
-        projected_reduced_solutions_slab["time"].append(slab_properties["time_points"][i])
+nb_buckets = 50 # int(2*slab_properties["n_total"]/len_block_evaluation)
+len_block_evaluation = int(slab_properties["n_total"]/nb_buckets)
 
-    # project dual solution up
-    projected_dual_reduced_solutions_slab = []
-    for i in range(len_block_evaluation):
-        projected_dual_reduced_solutions_slab.append(project_vector(dual_reduced_solutions_slab[i], pod_basis_dual))
-    extime_projection += time.time() - start_execution
-    
-    start_execution = time.time()
-    # compute estimator for each time step
-    temporal_interval_error = []
-    temporal_interval_error_relative = []
-    goal_func_on_slab = []
-    for i in range(len_block_evaluation):
-        if i > 0:
-            residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][i-1])
-        else:
-            residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i].copy() 
-        temporal_interval_error.append(projected_dual_reduced_solutions_slab[i].dot(residual_slab))
-        goal_func_on_slab.append(projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i]))
-        if np.abs(temporal_interval_error[i] + goal_func_on_slab[i]) > 1e-12:
-            temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + goal_func_on_slab[i]))
-        else:
-            temporal_interval_error_relative.append(0)
-    extime_estimate += time.time() - start_execution
-    
-    estimated_error = np.abs(np.sum(temporal_interval_error))
-    # estimated_error = np.sum(np.abs(temporal_interval_error))
-    estimated_error = np.mean(np.abs(temporal_interval_error_relative))
-    print(estimated_error)
-    if estimated_error < tol_rel:
-        break
-    else:
+
+projected_reduced_solutions_slab_buckets_combined = {"value": [], "time": []}
+temporal_interval_error_incidactor_combinded = []
+temporal_interval_error_combinded = []
+temporal_interval_error_relative_combinded = []
+
+last_bucket_end_solution = np.zeros(matrix_no_bc.shape[0])
+for it_bucket in range(nb_buckets):
+    print("bucket " + str(it_bucket+1) + " of " + str(nb_buckets) + " of length: " + str(len_block_evaluation)) 
+    bucket_shift = it_bucket*len_block_evaluation
+    temporal_interval_error_incidactor = np.zeros(len_block_evaluation)
+    while(True):
         start_execution = time.time()
+        primal_reduced_solutions = [reduce_vector(last_bucket_end_solution, pod_basis)] #[np.zeros(system_matrix_reduced.shape[0])]
         
-        # compute index whit largest primal error
-        index_primal = np.argmax(np.abs(temporal_interval_error))
-        index_primal = np.argmax(np.abs(temporal_interval_error_relative))
-        index_dual = index_primal
-        print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error[index_primal])))
-        print(" ")
+        # solve reduced primal system
+        for i in range(len_block_evaluation):
+            primal_rhs_reduced = reduce_vector(primal_system_rhs[i+bucket_shift].copy(), pod_basis) + mass_matrix_up_right_reduced.dot(primal_reduced_solutions[-1])
+            primal_reduced_solutions.append(np.linalg.solve(system_matrix_reduced, primal_rhs_reduced))
+        primal_reduced_solutions = primal_reduced_solutions[1:]
+        
+        # solve reduced dual problem
+        dual_reduced_solutions_slab = [np.zeros(mass_matrix_down_left_reduced.shape[0])] # not really reduced
+        for i in range(len_block_evaluation):
+            dual_rhs_reduced = reduce_vector(dual_system_rhs[0].copy(), pod_basis_dual)  + mass_matrix_down_left_reduced.dot(dual_reduced_solutions_slab[-1])
+            dual_reduced_solutions_slab.append(np.linalg.solve(dual_matrix_reduced, dual_rhs_reduced))
+        dual_reduced_solutions_slab = dual_reduced_solutions_slab[1:]
+        dual_reduced_solutions_slab = dual_reduced_solutions_slab[::-1]
+        extime_rom_solve += time.time() - start_execution
 
-        temporal_interval_error_incidactor[index_primal] = 1
+        start_execution = time.time()    
+        # project primal solution up
+        projected_reduced_solutions_slab = {"value": [], "time": []} 
+        for i in range(len_block_evaluation):
+            projected_reduced_solutions_slab["value"].append(project_vector(primal_reduced_solutions[i], pod_basis))
+            projected_reduced_solutions_slab["time"].append(slab_properties["time_points"][i+bucket_shift])
+
+        # project dual solution up
+        projected_dual_reduced_solutions_slab = []
+        for i in range(len_block_evaluation):
+            projected_dual_reduced_solutions_slab.append(project_vector(dual_reduced_solutions_slab[i], pod_basis_dual))
+        extime_projection += time.time() - start_execution
         
-        # solve primal FOM system
-        if index_primal > 0:
-            primal_rhs = primal_system_rhs[index_primal].copy() + mass_matrix_up_right.dot(projected_reduced_solutions_slab["value"][index_primal-1])
-        else:
-            primal_rhs = primal_system_rhs[index_primal].copy()
-        recomputed_reduced_solutions_slab = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
+        start_execution = time.time()
+        # compute estimator for each time step
+        temporal_interval_error = []
+        temporal_interval_error_relative = []
+        goal_func_on_slab = []
+        for i in range(len_block_evaluation):
+            if i > 0:
+                residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][i-1])
+            else:
+                residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot( last_bucket_end_solution)
+            temporal_interval_error.append(projected_dual_reduced_solutions_slab[i].dot(residual_slab))
+            goal_func_on_slab.append(projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i]))
+            if np.abs(temporal_interval_error[i] + goal_func_on_slab[i]) > 1e-12:
+                temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + goal_func_on_slab[i]))
+            else:
+                temporal_interval_error_relative.append(0)
+        extime_estimate += time.time() - start_execution
         
-        # solve dual FOM system
-        if index_dual < len_block_evaluation-1:
-            dual_rhs = dual_system_rhs[index_dual].copy() + mass_matrix_down_left.dot(projected_dual_reduced_solutions_slab[index_dual+1])
+        estimated_error = np.abs(np.sum(temporal_interval_error))
+        # estimated_error = np.sum(np.abs(temporal_interval_error))
+        estimated_error = np.max(np.abs(temporal_interval_error_relative))
+        print(estimated_error)
+        if estimated_error < tol_rel:
+            break
         else:
-            dual_rhs = dual_system_rhs[index_dual].copy()
-        recomputed_reduced_dual_solutions_slab =  scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
+            start_execution = time.time()
+            
+            # compute index whit largest primal error
+            # index_primal = np.argmax(np.abs(temporal_interval_error))
+            index_primal = np.argmax(np.abs(temporal_interval_error_relative))
+            index_dual = index_primal
+            print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error[index_primal])))
+            print(" ")
+
+            temporal_interval_error_incidactor[index_primal] = 1
+            
+            # solve primal FOM system
+            if index_primal > 0:
+                primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(projected_reduced_solutions_slab["value"][index_primal-1])
+            else:
+                primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(last_bucket_end_solution)
+            recomputed_reduced_solutions_slab = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
+            
+            # solve dual FOM system
+            if index_dual < len_block_evaluation-1:
+                dual_rhs = dual_system_rhs[index_dual].copy() + mass_matrix_down_left.dot(projected_dual_reduced_solutions_slab[index_dual+1])
+            else:
+                dual_rhs = dual_system_rhs[index_dual].copy()
+            recomputed_reduced_dual_solutions_slab =  scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
+        
+            # update ROM basis
+            for k in range(slab_properties["n_time_unknowns"]):
+                primal_solution = recomputed_reduced_solutions_slab[k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]
+                pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
+                    = iPOD(pod_basis["displacement"],
+                    bunch["displacement"],
+                    singular_values["displacement"],
+                    primal_solution[0:n_dofs["space"]],
+                    total_energy["displacement"],
+                    ENERGY_PRIMAL["displacement"],
+                    bunch_size)
+                pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] \
+                    = iPOD(pod_basis["velocity"],
+                    bunch["velocity"],
+                    singular_values["velocity"],
+                    primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+                    total_energy["velocity"],
+                    ENERGY_PRIMAL["velocity"],
+                    bunch_size)
+                    
+            for k in range(slab_properties["n_time_unknowns"]):
+                dual_solution = recomputed_reduced_dual_solutions_slab[k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]            
+                pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] \
+                    = iPOD(pod_basis_dual["displacement"],
+                        bunch_dual["displacement"],
+                        singular_values_dual["displacement"],
+                        dual_solution[0:n_dofs["space"]],
+                        total_energy_dual["displacement"],
+                        ENERGY_DUAL["displacement"],
+                        bunch_size)
+                pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] \
+                    = iPOD(pod_basis_dual["velocity"],
+                        bunch_dual["velocity"],
+                        singular_values_dual["velocity"],
+                        dual_solution[n_dofs["space"]:2 * n_dofs["space"]],
+                        total_energy_dual["velocity"],
+                        ENERGY_DUAL["velocity"],
+                        bunch_size)
+
+            # * reduced matrices
+            mass_matrix_up_right_reduced = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis, pod_basis)
+            system_matrix_reduced = reduce_matrix(matrix_no_bc, pod_basis, pod_basis)
+            mass_matrix_down_left_reduced = reduce_matrix(mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
+            dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
+            extime_update += time.time() - start_execution
     
-        # update ROM basis
-        for k in range(slab_properties["n_time_unknowns"]):
-            primal_solution = recomputed_reduced_solutions_slab[k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]
-            pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
-                = iPOD(pod_basis["displacement"],
-                bunch["displacement"],
-                singular_values["displacement"],
-                primal_solution[0:n_dofs["space"]],
-                total_energy["displacement"],
-                ENERGY_PRIMAL["displacement"],
-                bunch_size)
-            pod_basis["velocity"], bunch["velocity"], singular_values["velocity"], total_energy["velocity"] \
-                = iPOD(pod_basis["velocity"],
-                bunch["velocity"],
-                singular_values["velocity"],
-                primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
-                total_energy["velocity"],
-                ENERGY_PRIMAL["velocity"],
-                bunch_size)
-                
-        for k in range(slab_properties["n_time_unknowns"]):
-            dual_solution = recomputed_reduced_dual_solutions_slab[k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]            
-            pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] \
-                = iPOD(pod_basis_dual["displacement"],
-                    bunch_dual["displacement"],
-                    singular_values_dual["displacement"],
-                    dual_solution[0:n_dofs["space"]],
-                    total_energy_dual["displacement"],
-                    ENERGY_DUAL["displacement"],
-                    bunch_size)
-            pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] \
-                = iPOD(pod_basis_dual["velocity"],
-                    bunch_dual["velocity"],
-                    singular_values_dual["velocity"],
-                    dual_solution[n_dofs["space"]:2 * n_dofs["space"]],
-                    total_energy_dual["velocity"],
-                    ENERGY_DUAL["velocity"],
-                    bunch_size)
+    index_primal = len_block_evaluation-1
+    primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(projected_reduced_solutions_slab["value"][index_primal-1])
+    projected_reduced_solutions_slab["value"][-1] = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
+    
+    last_bucket_end_solution = projected_reduced_solutions_slab["value"][-1]
+    # last_bucket_end_solution = primal_solutions_slab["value"][(it_bucket+1)*len_block_evaluation-1]
 
-        # * reduced matrices
-        mass_matrix_up_right_reduced = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis, pod_basis)
-        system_matrix_reduced = reduce_matrix(matrix_no_bc, pod_basis, pod_basis)
-        mass_matrix_down_left_reduced = reduce_matrix(mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
-        dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
-        extime_update += time.time() - start_execution
-        
+
+    
+    
+    
+    
+    
+    
+    
+    
+    J_r_t = np.empty([len_block_evaluation, 1])
+    J_h_t = np.empty([len_block_evaluation, 1])
+    for i in range(len_block_evaluation):
+        J_r_t[i] = projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
+        J_h_t[i] = primal_solutions_slab["value"][i+bucket_shift].dot(dual_rhs_no_bc[i])
+
+    true_error = np.abs(np.sum(J_h_t-J_r_t))
+    true_abs_error = np.sum(np.abs(J_h_t-J_r_t))
+    estimated_error = np.abs(np.sum(temporal_interval_error))
+    estimated_abs_error = np.sum(np.abs(temporal_interval_error))
+    efficiency = true_error/estimated_error
+
+    print("J_h:                 " + str(np.sum(J_h_t)))
+    print("J_r:                 " + str(np.sum(J_r_t)))
+    print("true error:          " + str(true_error))
+    print("estimated error:     " + str(estimated_error))
+    print("efficiency:          " + str(efficiency))
+    print(" ")
+    print("true abs error:      " + str(true_abs_error))
+    print("estimated abs error: " + str(estimated_abs_error))
+    print("efficiency abs:      " + str(true_abs_error/estimated_abs_error))
+    
+    print(" ")
+    print(" ")
+    
+    for i in range(len_block_evaluation):
+        projected_reduced_solutions_slab_buckets_combined["value"].append(projected_reduced_solutions_slab["value"][i])
+        projected_reduced_solutions_slab_buckets_combined["time"].append(projected_reduced_solutions_slab["time"][i])
+        temporal_interval_error_incidactor_combinded.append(temporal_interval_error_incidactor[i])
+        temporal_interval_error_combinded.append(temporal_interval_error[i])
+        temporal_interval_error_relative_combinded.append(temporal_interval_error_relative[i])
+    
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution_whole
+
+projected_reduced_solutions_slab["value"] = projected_reduced_solutions_slab_buckets_combined["value"]
+projected_reduced_solutions_slab["time"] = projected_reduced_solutions_slab_buckets_combined["time"]
+temporal_interval_error_incidactor = temporal_interval_error_incidactor_combinded
+temporal_interval_error = temporal_interval_error_combinded
+temporal_interval_error_relative = temporal_interval_error_relative_combinded
 
 print("FOM time:             " + str(execution_time_FOM))
 print("ROM time:             " + str(execution_time_ROM))
@@ -505,7 +562,6 @@ projected_reduced_solution = np.hstack(projected_reduced_solutions)
 
 J_r_t = np.empty([slab_properties["n_total"], 1])
 J_h_t = np.empty([slab_properties["n_total"], 1])
-# TODO: is this correct? Yes, julian it is correct ;)
 for i in range(slab_properties["n_total"]):
     J_r_t[i] = projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
     J_h_t[i] = primal_solutions_slab["value"][i].dot(dual_rhs_no_bc[i])
@@ -567,6 +623,8 @@ plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
          np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
 plt.plot(np.vstack(projected_reduced_solutions_slab["time"])[:, -1],
          np.abs((J_h_t-J_r_t)/J_h_t), color='r', label="error - relative")
+plt.plot([projected_reduced_solutions_slab["time"][0][-1], projected_reduced_solutions_slab["time"][-1][-1]],
+         [tol_rel, tol_rel], color='y', label="tolerance - relative")
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
