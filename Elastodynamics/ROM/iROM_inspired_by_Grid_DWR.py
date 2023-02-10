@@ -50,6 +50,11 @@ ENERGY_PRIMAL = {"displacement": 0.99999999999,
 ENERGY_DUAL = {"displacement": 0.99999999999,
                  "velocity":     0.99999999999}
 
+# ENERGY_PRIMAL = {"displacement": 0.999999,
+#                  "velocity":     0.999999}
+# ENERGY_DUAL = {"displacement":   0.999999,
+#                  "velocity":     0.999999}
+
 # %% read in properties connected to discretization
 n_dofs, slab_properties, index2measuredisp, dof_matrix, grid = read_in_discretization(
     OUTPUT_PATH + cycle)
@@ -342,7 +347,7 @@ start_execution_whole = time.time()
     
 
 
-nb_buckets = 50 # int(2*slab_properties["n_total"]/len_block_evaluation)
+nb_buckets = 10 # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(slab_properties["n_total"]/nb_buckets)
 
 
@@ -419,7 +424,7 @@ for it_bucket in range(nb_buckets):
             # index_primal = np.argmax(np.abs(temporal_interval_error))
             index_primal = np.argmax(np.abs(temporal_interval_error_relative))
             index_dual = index_primal
-            print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error[index_primal])))
+            print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
             print(" ")
 
             temporal_interval_error_incidactor[index_primal] = 1
@@ -484,14 +489,40 @@ for it_bucket in range(nb_buckets):
             dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
             extime_update += time.time() - start_execution
     
+    
+    
     index_primal = len_block_evaluation-1
     primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(projected_reduced_solutions_slab["value"][index_primal-1])
     projected_reduced_solutions_slab["value"][-1] = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
     
     last_bucket_end_solution = projected_reduced_solutions_slab["value"][-1]
     # last_bucket_end_solution = primal_solutions_slab["value"][(it_bucket+1)*len_block_evaluation-1]
+    
+    # total_energy_dual = {"displacement": 0, "velocity": 0}
+    # pod_basis_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+    # bunch_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
+    # singular_values_dual = {"displacement": np.empty([0, 0]), "velocity": np.empty([0, 0])}
 
-
+    # # for dual_solution in dual_solutions["value"][1]:# [0:400]:
+    # dual_solution = dual_solutions["value"][1]
+    # pod_basis_dual["displacement"], bunch_dual["displacement"], singular_values_dual["displacement"], total_energy_dual["displacement"] \
+    #     = iPOD(pod_basis_dual["displacement"],
+    #             bunch_dual["displacement"],
+    #             singular_values_dual["displacement"],
+    #             dual_solution[0:n_dofs["space"]],
+    #             total_energy_dual["displacement"],
+    #             ENERGY_DUAL["displacement"],
+    #             bunch_size)
+    # pod_basis_dual["velocity"], bunch_dual["velocity"], singular_values_dual["velocity"], total_energy_dual["velocity"] \
+    #     = iPOD(pod_basis_dual["velocity"],
+    #             bunch_dual["velocity"],
+    #             singular_values_dual["velocity"],
+    #             dual_solution[n_dofs["space"]:2 * n_dofs["space"]],
+    #             total_energy_dual["velocity"],
+    #             ENERGY_DUAL["velocity"],
+    #             bunch_size)
+    # mass_matrix_down_left_reduced = reduce_matrix(mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
+    # dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
     
     
     
@@ -581,6 +612,25 @@ print(" ")
 print("true abs error:      " + str(true_abs_error))
 print("estimated abs error: " + str(estimated_abs_error))
 print("efficiency abs:      " + str(true_abs_error/estimated_abs_error))
+
+# %% error metric
+
+true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
+esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
+
+from sklearn.metrics import confusion_matrix
+confusion_matrix = confusion_matrix(true_tol.astype(int), esti_tol.astype(int))
+eltl, egtl, eltg, egtg = confusion_matrix.ravel()
+# n_slabs=100
+
+print(f"(error > tol & esti < tol): {eltg} ({round(100 * eltg / slab_properties['n_total'],1)} %)  (very bad)")
+print(f"(error < tol & esti > tol): {egtl} ({round(100 * egtl / slab_properties['n_total'],1)} %)  (bad)")
+print(f"(error > tol & esti > tol): {egtg} ({round(100 * egtg / slab_properties['n_total'],1)} %)  (good)")
+print(f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / slab_properties['n_total'],1)} %)  (good)")
+
+
+
+
 
 # %% Plotting
 time_step_size = 40.0 / (slab_properties["n_total"])
