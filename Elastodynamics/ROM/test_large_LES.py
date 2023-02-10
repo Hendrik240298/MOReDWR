@@ -129,7 +129,7 @@ initial_solution = np.loadtxt(OUTPUT_PATH + cycle + "/initial_solution.txt")
 SKIP_PRIMAL = False
 
 
-slab_properties["n_total"] = 400
+slab_properties["n_total"] = 25
 
 if not SKIP_PRIMAL:
     start_execution = time.time()
@@ -332,7 +332,6 @@ for i in range(slab_properties["n_total"]):
         # residual_slab = - matrix_no_bc_for_dual.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy()
     else:
         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][-1]) + rhs_no_bc[i].copy() 
-        
     
     temporal_interval_error.append( dual_projected_slab["value"].dot(residual_slab))  # TODO write as residual_slab.dot(dual_projected_slab["value"])
     goal_func_on_slab = projected_reduced_solutions_slab["value"][-1].dot(dual_rhs_no_bc[i])
@@ -360,8 +359,8 @@ for i in range(slab_properties["n_total"]):
         projected_reduced_solutions_slab["value"][-1] = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
         
         # update ROM basis
-        for i in range(slab_properties["n_time_unknowns"]):
-            primal_solution = projected_reduced_solutions_slab["value"][-1][i*n_dofs["time_step"]:(i+1)*n_dofs["time_step"]]
+        for k in range(slab_properties["n_time_unknowns"]):
+            primal_solution = projected_reduced_solutions_slab["value"][-1][k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]
             pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
                 = iPOD(pod_basis["displacement"],
                 bunch["displacement"],
