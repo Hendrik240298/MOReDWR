@@ -414,20 +414,7 @@ for iteration in range(100):
         
         # compute index whit largest primal error
         index_primal = np.argmax(np.abs(temporal_interval_error))
-     
-        # compute max dual residual and its index
-        dual_residual = 0
-        index_dual = len_block_evaluation-1
-        for k in list(range(len_block_evaluation))[::-1]:
-            if k < len_block_evaluation-1:
-                dual_rhs = dual_system_rhs[k].copy() + mass_matrix_down_left_no_bc.dot(projected_dual_reduced_solutions_slab[k+1])
-            else:
-                dual_rhs = dual_system_rhs[k].copy()
-            dual_residual_new = np.linalg.norm(-dual_matrix_no_bc.dot(projected_dual_reduced_solutions_slab[k]) + dual_rhs)     
-            if dual_residual_new > dual_residual:
-                dual_residual = dual_residual_new
-                index_dual = k
-        # index_dual = index_primal
+        index_dual = index_primal
         print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error[index_primal])))
         print(str(index_dual) +   ":   " + str(dual_residual))
         print(" ")
