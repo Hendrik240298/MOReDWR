@@ -405,18 +405,18 @@ for iteration in range(100):
     
     estimated_error = np.abs(np.sum(temporal_interval_error))
     # estimated_error = np.sum(np.abs(temporal_interval_error))
-    # estimated_error = np.mean(np.abs(temporal_interval_error_relative))
+    estimated_error = np.mean(np.abs(temporal_interval_error_relative))
     print(estimated_error)
-    if estimated_error < tol:
+    if estimated_error < tol_rel:
         break
     else:
         start_execution = time.time()
         
         # compute index whit largest primal error
         index_primal = np.argmax(np.abs(temporal_interval_error))
+        index_primal = np.argmax(np.abs(temporal_interval_error_relative))
         index_dual = index_primal
         print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error[index_primal])))
-        print(str(index_dual) +   ":   " + str(dual_residual))
         print(" ")
 
         temporal_interval_error_incidactor[index_primal] = 1
