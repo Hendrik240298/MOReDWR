@@ -50,7 +50,8 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy,energy_content):
             # Q = np.hstack((POD, Q_p))
             # Q_q, _ = scipy.linalg.qr(Q, mode='economic')
 
-            r = 0# col_POD + 1 #0
+            r = col_POD + 1 #0
+            # r = 0
             while ((np.dot(S_k[0:r], S_k[0:r]) / total_energy <=
                    energy_content) and (r < np.shape(S_k)[0])):
                 r += 1
@@ -105,8 +106,8 @@ def ROM_update(
         for slab_step in range(
                 # 1):
                 int(projected_reduced_solution.shape[0] / n_dofs["space"])):
-            pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, projected_reduced_solution[range(
-                slab_step * n_dofs["space"], (slab_step + 1) * n_dofs["space"])], total_energy_tmp,energy_content)
+            pod_basis, bunch_tmp, singular_values_tmp, total_energy_tmp = iPOD(pod_basis, bunch_tmp, singular_values_tmp, 
+                    projected_reduced_solution[slab_step * n_dofs["space"]: (slab_step + 1) * n_dofs["space"]], total_energy_tmp,energy_content)
     else:
         print(
             (projected_reduced_solution.shape[0] / n_dofs["space"]).is_integer())
