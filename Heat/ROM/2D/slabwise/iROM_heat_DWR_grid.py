@@ -248,6 +248,7 @@ print(f"forward steps = {forwardsteps}")
 print(" ")
 extime_solve = 0.0
 extime_dual_solve = 0.0
+extime_project = 0.0
 extime_error = 0.0
 extime_update  =0.0
 
@@ -269,15 +270,17 @@ for it_bucket in range(nb_buckets):
     
     while True:
         #primal ROM solve
+        extime_solve_start = time.time()
         primal_reduced_solutions = [reduce_vector(last_bucket_end_solution, pod_basis)]
         for i in range(len_block_evaluation):                
             reduced_rhs = reduce_vector(rhs_no_bc[i+bucket_shift], pod_basis)
             reduced_rhs -= reduced_jump_matrix.dot(primal_reduced_solutions[-1])
-            primal_reduced_solutions.append(scipy.linalg.lu_solve((LU_primal, piv_primal), reduced_rhs))
-            
+            primal_reduced_solutions.append(scipy.linalg.lu_solve((LU_primal, piv_primal), reduced_rhs))         
         primal_reduced_solutions = primal_reduced_solutions[1:]
+        extime_solve += time.time() - extime_solve_start
         
         # reversed forward dual solve
+        extime_dual_solve_start = time.time()
         reduced_dual_solutions = [np.zeros(reduced_dual_jump_matrix_no_bc.shape[1])]
         for i in range(len_block_evaluation):
             reduced_dual_rhs = 2*reduced_mass_matrix_no_bc.dot(primal_reduced_solutions[-i]) #len(forwarded_reduced_solutions)-forwardstep])
@@ -285,8 +288,10 @@ for it_bucket in range(nb_buckets):
             reduced_dual_solutions.append(scipy.linalg.lu_solve((LU_dual, piv_dual), reduced_dual_rhs)) 
         reduced_dual_solutions = reduced_dual_solutions[1:]
         reduced_dual_solutions = reduced_dual_solutions[::-1]
+        extime_dual_solve += time.time() - extime_dual_solve_start
         
         # project primal solution up
+        extime_project_start = time.time()
         projected_reduced_solutions = []
         for i in range(len_block_evaluation):
             projected_reduced_solutions.append(project_vector(primal_reduced_solutions[i], pod_basis))
@@ -295,7 +300,9 @@ for it_bucket in range(nb_buckets):
         projected_reduced_dual_solutions = []
         for i in range(len_block_evaluation):
             projected_reduced_dual_solutions.append(project_vector(reduced_dual_solutions[i], pod_basis_dual))
+        extime_project += time.time() - extime_project_start
         
+        extime_error_start = time.time()
         temporal_interval_error = []
         temporal_interval_error_relative = []
         for i in range(len_block_evaluation):
@@ -306,12 +313,13 @@ for it_bucket in range(nb_buckets):
                 tmp -= jump_matrix_no_bc.dot(last_bucket_end_solution)
             temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[i], tmp))
             temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[i],  mass_matrix_no_bc.dot(projected_reduced_solutions[i]))+temporal_interval_error[-1]))
-
+        extime_error += time.time() - extime_error_start
         estimated_error = np.max(np.abs(temporal_interval_error_relative))
         print(estimated_error)
         if estimated_error < tol_rel/2:
             break
         else:
+            extime_update_start = time.time()
             index_primal = np.argmax(np.abs(temporal_interval_error_relative))
             index_dual = index_primal
             print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
@@ -392,7 +400,7 @@ for it_bucket in range(nb_buckets):
 
             # Lu decompostion of reduced matrices
             LU_dual, piv_dual     = scipy.linalg.lu_factor(reduced_dual_matrix)
-            
+            extime_update += time.time() - extime_update_start
                         
 
     index_primal = len_block_evaluation-1
@@ -426,9 +434,10 @@ print("FOM solves:       " + str(np.sum(temporal_interval_error_incidactor)
 print(" ")
 print("ROM Solve time:      " + str(extime_solve))
 print("ROM dual Solve time: " + str(extime_dual_solve))
+print("Project time:        " + str(extime_project))
 print("Error est time:      " + str(extime_error))
 print("Update time:         " + str(extime_update))
-print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve))
+print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve+extime_project))
 print(" ")
 projected_reduced_solution = np.hstack(projected_reduced_solutions)
 
