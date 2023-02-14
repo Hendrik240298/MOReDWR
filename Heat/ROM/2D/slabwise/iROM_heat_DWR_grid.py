@@ -239,7 +239,7 @@ temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
 tol = 1e-10
-tol_rel = 0.75e-2
+tol_rel = 1e-2
 tol_dual = 5e-1
 forwardsteps = 1
 
@@ -250,11 +250,10 @@ print(f"forward steps = {forwardsteps}")
 print(" ")
 extime_solve = 0.0
 extime_dual_solve = 0.0
-extime_project = 0.0
 extime_error = 0.0
 extime_update  =0.0
 
-nb_buckets = 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
+nb_buckets = 32 #64*2*2# 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(n_slabs/nb_buckets)
 
 start_execution = time.time()
@@ -414,18 +413,18 @@ for it_bucket in range(nb_buckets):
             # Lu decompostion of reduced matrices
             LU_dual, piv_dual     = scipy.linalg.lu_factor(reduced_dual_matrix)
             extime_update += time.time() - extime_update_start
-                        
+            
+            last_bucket_end_solution = project_vector(reduce_vector(last_bucket_end_solution,pod_basis),pod_basis)
 
     index_primal = len_block_evaluation-1
-    
     
     last_bucket_end_solution = project_vector(primal_reduced_solutions[-1],pod_basis)   #projected_reduced_solutions[-1]
     
     for i in range(len_block_evaluation):
-        reduced_solutions_buckets_combined.append(primal_reduced_solutions[i])
+    #     reduced_solutions_buckets_combined.append(primal_reduced_solutions[i])
         temporal_interval_error_incidactor_combinded.append(temporal_interval_error_incidactor[i])
-        temporal_interval_error_combinded.append(temporal_interval_error[i])
-        temporal_interval_error_relative_combinded.append(temporal_interval_error_relative[i])
+    #     temporal_interval_error_combinded.append(temporal_interval_error[i])
+    #     temporal_interval_error_relative_combinded.append(temporal_interval_error_relative[i])
     
 end_execution = time.time()
 execution_time_ROM = end_execution - start_execution
@@ -491,10 +490,10 @@ print("FOM solves:       " + str(np.sum(temporal_interval_error_incidactor)
 print(" ")
 print("ROM Solve time:      " + str(extime_solve))
 print("ROM dual Solve time: " + str(extime_dual_solve))
-print("Project time:        " + str(extime_project))
+# print("Project time:        " + str(extime_project))
 print("Error est time:      " + str(extime_error))
 print("Update time:         " + str(extime_update))
-print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve+extime_project))
+print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve))
 print(" ")
 
 original_stdout = sys.stdout  # Save a reference to the original standard output
@@ -528,9 +527,19 @@ for i in range(1,n_slabs,1):
 # %% error estimation
 true_error = J['u_h'] - J['u_r']
 
-error_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
+real_max_error = np.max(np.abs((J_h_t - J_r_t)/J_h_t))
+real_max_error_index = np.argmax(np.abs((J_h_t - J_r_t)/J_h_t))
+estimated_max_error = np.max(np.abs(temporal_interval_error_relative))
+estimated_max_error_index = np.argmax(np.abs(temporal_interval_error_relative))
+
+print(f"Largest estimated error at: {estimated_max_error_index} with: {estimated_max_error}")
+print(f"Largest real error at:      {real_max_error_index} with: {real_max_error}")
+print(f"We instead estimated:                 {np.abs(temporal_interval_error_relative)[real_max_error_index]}")
+
 
 #print(np.sum(error_tol.astype(int)))
+
+np.abs((J_h_t - J_r_t)/J_h_t)
 
 J_r_t = J_r_t_before_enrichement
 
