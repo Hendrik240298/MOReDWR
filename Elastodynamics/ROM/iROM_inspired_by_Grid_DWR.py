@@ -289,6 +289,10 @@ system_matrix_reduced = reduce_matrix(matrix_no_bc, pod_basis, pod_basis)
 #dual
 mass_matrix_down_left_reduced = reduce_matrix(mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
 dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
+
+# estimator
+reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
 # ------------------------------------------------------------------------------------------
 # %% Primal ROM solve
 # reduced_solutions = {"value": [], "time": []}
@@ -398,17 +402,36 @@ for it_bucket in range(nb_buckets):
         temporal_interval_error = []
         temporal_interval_error_relative = []
         goal_func_on_slab = []
+        
+        # for i in range(len_block_evaluation):
+        #     if i > 0:
+        #         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][i-1])
+        #     else:
+        #         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot( last_bucket_end_solution)
+        #     temporal_interval_error.append(projected_dual_reduced_solutions_slab[i].dot(residual_slab))
+        #     goal_func_on_slab.append(projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i]))
+        #     if np.abs(temporal_interval_error[i] + goal_func_on_slab[i]) > 1e-12:
+        #         temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + goal_func_on_slab[i]))
+        #     else:
+        #         temporal_interval_error_relative.append(0)
+        
+        
+        reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+        reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
+                        
         for i in range(len_block_evaluation):
             if i > 0:
-                residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][i-1])
+                residual_slab = - reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift].copy(),pod_basis_dual) + reduced_mass_matrix_up_right_no_bc_estimator.dot(primal_reduced_solutions[i-1])
             else:
-                residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot( last_bucket_end_solution)
-            temporal_interval_error.append(projected_dual_reduced_solutions_slab[i].dot(residual_slab))
-            goal_func_on_slab.append(projected_reduced_solutions_slab["value"][i].dot(dual_rhs_no_bc[i]))
+                residual_slab = - reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift].copy(),pod_basis_dual) + reduced_mass_matrix_up_right_no_bc_estimator.dot(reduce_vector(last_bucket_end_solution, pod_basis))
+            temporal_interval_error.append(dual_reduced_solutions_slab[i].dot(residual_slab))
+            goal_func_on_slab.append(primal_reduced_solutions[i].dot(reduce_vector(dual_rhs_no_bc[i],pod_basis)))
             if np.abs(temporal_interval_error[i] + goal_func_on_slab[i]) > 1e-12:
                 temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + goal_func_on_slab[i]))
             else:
                 temporal_interval_error_relative.append(0)
+                                
+        
         extime_estimate += time.time() - start_execution
         
         estimated_error = np.abs(np.sum(temporal_interval_error))
@@ -428,6 +451,7 @@ for it_bucket in range(nb_buckets):
             print(" ")
 
             temporal_interval_error_incidactor[index_primal] = 1
+            
             
             # solve primal FOM system
             if index_primal > 0:
@@ -489,7 +513,8 @@ for it_bucket in range(nb_buckets):
             dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
             extime_update += time.time() - start_execution
     
-    
+            reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+            reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
     
     index_primal = len_block_evaluation-1
     primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(projected_reduced_solutions_slab["value"][index_primal-1])
