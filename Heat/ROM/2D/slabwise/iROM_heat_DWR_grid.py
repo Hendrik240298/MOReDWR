@@ -201,7 +201,9 @@ reduced_dual_jump_matrix_no_bc = reduce_matrix(jump_matrix_no_bc,pod_basis_dual,
 
 reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc,pod_basis_dual,pod_basis)
 
-
+reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+reduced_jump_matrix_no_bc_estimator = reduce_matrix(jump_matrix_no_bc, pod_basis_dual, pod_basis)
+reduced_mass_matrix_no_bc_cst_fct = reduce_matrix(mass_matrix_no_bc, pod_basis, pod_basis)
 # reduced_dual_matrix = space_time_pod_basis_dual.T.dot(
 #     dual_matrix_no_bc.dot(space_time_pod_basis_dual)).toarray()
 #  reduced_dual_jump_matrix_no_bc = space_time_pod_basis_dual.T.dot(
@@ -236,7 +238,7 @@ temporal_interval_error = []
 temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
-tol = 5e-4/(n_slabs)
+tol = 1e-10
 tol_rel = 1e-2
 tol_dual = 5e-1
 forwardsteps = 1
@@ -305,18 +307,44 @@ for it_bucket in range(nb_buckets):
         extime_error_start = time.time()
         temporal_interval_error = []
         temporal_interval_error_relative = []
+        
+        
+        # for i in range(len_block_evaluation):
+        #     tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i+bucket_shift]
+        #     if i > 0:
+        #         tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
+        #     else:
+        #         tmp -= jump_matrix_no_bc.dot(last_bucket_end_solution)
+        #     temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[i], tmp))
+        #     goal_functional = np.dot(projected_reduced_solutions[i],  mass_matrix_no_bc.dot(projected_reduced_solutions[i]))
+        #     temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(goal_functional+temporal_interval_error[-1]))
+        # extime_error += time.time() - extime_error_start
+        
+        # estimated_error = np.max(np.abs(temporal_interval_error_relative))
+        
+        # CANT PROJECT ESTIAMTOR WHEN F EXISTS'''
+        
+        # reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+        # reduced_jump_matrix_no_bc_estimator = reduce_matrix(jump_matrix_no_bc, pod_basis_dual, pod_basis)
+        
         for i in range(len_block_evaluation):
-            tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i+bucket_shift]
+            tmp = -reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift],pod_basis_dual)
             if i > 0:
-                tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
+                tmp -= reduced_jump_matrix_no_bc_estimator.dot(primal_reduced_solutions[i - 1])
             else:
-                tmp -= jump_matrix_no_bc.dot(last_bucket_end_solution)
-            temporal_interval_error.append(np.dot(projected_reduced_dual_solutions[i], tmp))
-            temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(np.dot(projected_reduced_solutions[i],  mass_matrix_no_bc.dot(projected_reduced_solutions[i]))+temporal_interval_error[-1]))
+                tmp -= reduced_jump_matrix_no_bc_estimator.dot(reduce_vector(last_bucket_end_solution, pod_basis)) #reduce_vector(jump_matrix_no_bc.dot(last_bucket_end_solution),pod_basis_dual) #
+            temporal_interval_error.append(np.dot(reduced_dual_solutions[i], tmp))
+            goal_functional = np.dot(primal_reduced_solutions[i],  reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
+            temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(goal_functional+temporal_interval_error[-1]))
         extime_error += time.time() - extime_error_start
+        
+        
+        # temporal_interval_error_relative = temporal_interval_error
         estimated_error = np.max(np.abs(temporal_interval_error_relative))
+
         print(estimated_error)
         if estimated_error < tol_rel/2:
+        # if estimated_error < tol:
             break
         else:
             extime_update_start = time.time()
@@ -352,6 +380,7 @@ for it_bucket in range(nb_buckets):
 
 
             reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
+            
             forwarded_reduced_solutions = []
             forwarded_reduced_solutions.append(reduce_vector(projected_reduced_solutions[index_primal],pod_basis))
 
@@ -398,6 +427,9 @@ for it_bucket in range(nb_buckets):
                         ENERGY_DUAL)    
             reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
 
+            reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+            reduced_jump_matrix_no_bc_estimator = reduce_matrix(jump_matrix_no_bc, pod_basis_dual, pod_basis)
+            reduced_mass_matrix_no_bc_cst_fct = reduce_matrix(mass_matrix_no_bc, pod_basis, pod_basis)
             # Lu decompostion of reduced matrices
             LU_dual, piv_dual     = scipy.linalg.lu_factor(reduced_dual_matrix)
             extime_update += time.time() - extime_update_start
