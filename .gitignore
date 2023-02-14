@@ -38,3 +38,4 @@ Elastodynamics/ROM/images_show/cost_functional.png
 .gitignore
 Elastodynamics/ROM/images_show/relative_estimate_vs_true_error.png
 Elastodynamics/ROM/images_show/estimate_vs_true_error.png
+Heat/ROM/2D/slabwise/images/estimae.png
