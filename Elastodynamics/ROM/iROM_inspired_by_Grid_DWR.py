@@ -143,7 +143,7 @@ SKIP_PRIMAL = False
 # slab_properties["n_total"] = 100
 
 if not SKIP_PRIMAL:
-    start_execution = time.time()
+    start_time = time.time()
 
     primal_solutions_slab = {"value": [], "time": []}
     for i in range(slab_properties["n_total"]):
@@ -156,11 +156,9 @@ if not SKIP_PRIMAL:
         primal_solutions_slab["value"].append(primal_solution)
         primal_solutions_slab["time"].append(slab_properties["time_points"][i])
 
-    end_execution = time.time()
+    time_FOM = time.time() - start_time
 
-    execution_time_FOM = end_execution - start_execution
-
-    print("Primal FOM time:   " + str(execution_time_FOM))
+    print("Primal FOM time:   " + str(time_FOM))
     print("n_dofs[space]:     ", n_dofs["space"])
     print("time steps:        ", slab_properties["n_total"])
 
@@ -333,10 +331,17 @@ print("tol_rel       = " + str(tol_rel))
 print("tol           = " + str(tol))
 print(f"forward steps = {forwardsteps}")
 print(" ")
-extime_rom_solve = 0.0
-extime_projection = 0.0
-extime_estimate = 0.0
-extime_update = 0.0
+
+# measure time of specific actions
+time_rom_solve = 0.0
+time_estimate = 0.0
+time_update = 0.0
+time_iROM = 0.0
+time_verification = 0.0
+time_matrix_update = 0.0
+time_pod_update = 0.
+# count number of FOM solves during iROM loop: PRIMAL AND DUAL COMBINED
+number_FOM_solves = 0
 
 n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + \
     pod_basis["velocity"].shape[1]
@@ -344,15 +349,13 @@ n_dofs["reduced_primal"] = pod_basis["displacement"].shape[1] + \
 # alpha = 1.1
 projected_reduced_solutions_slab = {"value": [], "time": []}
 
-# bunch_size = 1# slab_properties["n_time_unknowns"]
+bunch_size = 1# slab_properties["n_time_unknowns"]  #1# slab_properties["n_time_unknowns"]
 
-start_execution_whole = time.time()
+start_time_iROM = time.time()
 
-    
-
-
-nb_buckets = 10 # int(2*slab_properties["n_total"]/len_block_evaluation)
+nb_buckets = 80 # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(slab_properties["n_total"]/nb_buckets)
+
 
 
 projected_reduced_solutions_slab_buckets_combined = {"value": [], "time": []}
@@ -366,7 +369,9 @@ for it_bucket in range(nb_buckets):
     bucket_shift = it_bucket*len_block_evaluation
     temporal_interval_error_incidactor = np.zeros(len_block_evaluation)
     while(True):
-        start_execution = time.time()
+        
+        # ----------------------------------------- ROM solves -----------------------------------------
+        start_time = time.time()
         primal_reduced_solutions = [reduce_vector(last_bucket_end_solution, pod_basis)] #[np.zeros(system_matrix_reduced.shape[0])]
         
         # solve reduced primal system
@@ -382,13 +387,11 @@ for it_bucket in range(nb_buckets):
             dual_reduced_solutions.append(np.linalg.solve(dual_matrix_reduced, dual_rhs_reduced))
         dual_reduced_solutions = dual_reduced_solutions[1:]
         dual_reduced_solutions = dual_reduced_solutions[::-1]
-        extime_rom_solve += time.time() - start_execution
-
-        start_execution = time.time()    
-        extime_projection += time.time() - start_execution
         
-        start_execution = time.time()
-        # compute estimator for each time step
+        time_rom_solve += time.time() - start_time
+
+        # ----------------------------------------- Error estimate -----------------------------------------
+        start_time = time.time()    
         temporal_interval_error = []
         temporal_interval_error_relative = []
         goal_func_on_slab = []
@@ -404,17 +407,18 @@ for it_bucket in range(nb_buckets):
                 temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + goal_func_on_slab[i]))
             else:
                 temporal_interval_error_relative.append(0)
-                                
-        
-        extime_estimate += time.time() - start_execution
-        
+                
         estimated_error = np.max(np.abs(temporal_interval_error_relative))
+        
+        time_estimate += time.time() - start_time
+        
         print(estimated_error)
+        
+        # ----------------------------------------- Basis Update -----------------------------------------
+        start_time = time.time()
         if estimated_error < tol_rel:
             break
         else:
-            start_execution = time.time()
-            
             index_primal = np.argmax(np.abs(temporal_interval_error_relative))
             print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
             print(" ")
@@ -429,7 +433,7 @@ for it_bucket in range(nb_buckets):
                 
             primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(old_projected_solution)
             new_projection_solution = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
-                    
+            number_FOM_solves += 1
             
             # solve dual FOM system
             if index_primal < len_block_evaluation-1:
@@ -438,8 +442,10 @@ for it_bucket in range(nb_buckets):
                 old_projected_dual_solution = np.zeros(dual_system_rhs.shape[1])
             dual_rhs = dual_system_rhs[0].copy() + mass_matrix_down_left.dot(old_projected_dual_solution)
             new_projection_dual_solution =  scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
-        
+            number_FOM_solves += 1
+            
             # update ROM basis
+            start_time_pod = time.time()
             for k in range(slab_properties["n_time_unknowns"]):
                 primal_solution = new_projection_solution[k*n_dofs["time_step"]:(k+1)*n_dofs["time_step"]]
                 pod_basis["displacement"], bunch["displacement"], singular_values["displacement"], total_energy["displacement"] \
@@ -478,24 +484,33 @@ for it_bucket in range(nb_buckets):
                         ENERGY_DUAL["velocity"],
                         bunch_size)
 
-            # * reduced matrices
+            time_pod_update += time.time() - start_time_pod
+            
+            # * Update reduced matrices
+            start_time_matrix = time.time()
             mass_matrix_up_right_reduced = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis, pod_basis)
             system_matrix_reduced = reduce_matrix(matrix_no_bc, pod_basis, pod_basis)
             mass_matrix_down_left_reduced = reduce_matrix(mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
             dual_matrix_reduced = reduce_matrix(dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
-            extime_update += time.time() - start_execution
 
-            # * reduced matrices for reduced error estimator
+            # * Update reduced matrices for reduced error estimator
             reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
             reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
-    
-    index_primal = len_block_evaluation-1
-    old_projected_solution = project_vector(primal_reduced_solutions[index_primal-1], pod_basis)
-    primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(old_projected_solution)
-    last_bucket_end_solution = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
-    
-# %% ---------------------- VERIFICATION ------------------------------------------------------------
+            time_matrix_update += time.time() - start_time_matrix
+            
+            time_update += time.time() - start_time
 
+    # * Set IC of new slab to last solution of previous bucket
+    index_primal = len_block_evaluation-1
+    if False:
+        old_projected_solution = project_vector(primal_reduced_solutions[index_primal-1], pod_basis)
+        primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy() + mass_matrix_up_right.dot(old_projected_solution)
+        last_bucket_end_solution = scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs)
+        number_FOM_solves += 1
+    else:
+        last_bucket_end_solution = project_vector(primal_reduced_solutions[index_primal], pod_basis)
+# %% ----------------------------------------- VERIFICATION -----------------------------------------
+start_time = time.time()
 last_bucket_end_solution = np.zeros(matrix_no_bc.shape[0])
 primal_reduced_solutions = [reduce_vector(last_bucket_end_solution, pod_basis)]
 
@@ -527,28 +542,29 @@ for i in range(slab_properties["n_total"]):
         temporal_interval_error_relative.append(temporal_interval_error[i]/(temporal_interval_error[i] + J_r_t[i]))
     else:
         temporal_interval_error_relative.append(0)
-
 estimated_error = np.max(np.abs(temporal_interval_error_relative))
-print(f"max error after verification: {estimated_error}")
-    
-# %%
-end_execution = time.time()
-execution_time_ROM = end_execution - start_execution_whole
 
-print("FOM time:             " + str(execution_time_FOM))
-print("ROM time:             " + str(execution_time_ROM))
-print("speedup: act/max:     " + str(execution_time_FOM/execution_time_ROM) + " / " + str(len(temporal_interval_error_incidactor)/(np.sum(temporal_interval_error_incidactor))))
+time_verification = time.time() - start_time
+time_iROM = time.time() - start_time_iROM
+
+print(f"max error after verification: {estimated_error}")
+
+# %%
+
+print("FOM time:             " + str(time_FOM))
+print("iROM time:            " + str(time_iROM))
+print("speedup: act/max:     " + str(time_FOM/time_iROM) + " / " + str(slab_properties["n_total"]/number_FOM_solves))
 print("Size ROM: u/v         " + str(pod_basis["displacement"].shape[1]) + " / " + str(pod_basis["velocity"].shape[1]))
 print("Size ROM - dual: u/v  " + str(pod_basis_dual["displacement"].shape[1]) + " / " + str(pod_basis_dual["velocity"].shape[1]))
-print("FOM solves:           " + str(np.sum(temporal_interval_error_incidactor)
-                             ) + " / " + str(len(temporal_interval_error_incidactor)))
+print("FOM solves:           " + str(number_FOM_solves)
+                              + " / " + str(slab_properties["n_total"]))
 print("Ex times in algo:")
-
-
-print("ROM :       " + str(extime_rom_solve))
-print("Projection: " + str(extime_projection))
-print("Estimate:   " + str(extime_estimate))
-print("Update:     " + str(extime_update))
+print("ROM :         " + str(time_rom_solve))
+print("Estimate:     " + str(time_estimate))
+print("Update:       " + str(time_update))
+print("    POD:      " + str(time_pod_update))
+print("    Matrix:   " + str(time_matrix_update))
+print("Verification: " + str(time_verification))
 print(" ")
 # projected_reduced_solution = np.hstack(projected_reduced_solutions)
 
