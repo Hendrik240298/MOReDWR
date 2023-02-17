@@ -241,7 +241,7 @@ temporal_interval_error_incidactor = []
 tol = 1e-10
 tol_rel = 1e-2
 tol_dual = 5e-1
-forwardsteps = 1
+forwardsteps = 10
 
 # print("tol =     " + str(tol))
 print("tol_rel       = " + str(tol_rel))
@@ -335,8 +335,9 @@ for it_bucket in range(nb_buckets):
             print(" ")
 
             temporal_interval_error_incidactor[index_primal] = 1
-            
-            if i > 0:    
+            print(f"i:            {i}")
+            print(f"index_primal: {index_primal}")
+            if index_primal > 0:    
                 old_projected_solution = project_vector(primal_reduced_solutions[index_primal-1], pod_basis)  # projected_reduced_solutions[index_primal - 1]
             else:
                 old_projected_solution = last_bucket_end_solution
@@ -365,9 +366,9 @@ for it_bucket in range(nb_buckets):
             forwarded_reduced_solutions.append(reduce_vector(new_projection_solution,pod_basis))
 
             for forwardstep in range(forwardsteps):
-                if i+forwardstep+1 +bucket_shift >= n_slabs:
+                if index_primal+forwardstep+1 +bucket_shift >= n_slabs:
                     break
-                forwarded_reduced_rhs =  reduce_vector(rhs_no_bc[i+forwardstep+1+bucket_shift],pod_basis)
+                forwarded_reduced_rhs =  reduce_vector(rhs_no_bc[index_primal+forwardstep+1+bucket_shift],pod_basis)
                 forwarded_reduced_rhs -= reduced_jump_matrix.dot(forwarded_reduced_solutions[-1])
                 forwarded_reduced_solutions.append(scipy.linalg.lu_solve((LU_primal, piv_primal), forwarded_reduced_rhs))
                 
