@@ -402,7 +402,6 @@ for it_bucket in range(nb_buckets):
         temporal_interval_error = []
         temporal_interval_error_relative = []
         goal_func_on_slab = []
-        
         # for i in range(len_block_evaluation):
         #     if i > 0:
         #         residual_slab = - matrix_no_bc.dot(projected_reduced_solutions_slab["value"][i]) + rhs_no_bc[i+bucket_shift].copy() + mass_matrix_up_right_no_bc.dot(projected_reduced_solutions_slab["value"][i-1])
@@ -416,14 +415,14 @@ for it_bucket in range(nb_buckets):
         #         temporal_interval_error_relative.append(0)
         
         
-        reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
-        reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
+        # reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
+        # reduced_mass_matrix_up_right_no_bc_estimator = reduce_matrix(mass_matrix_up_right_no_bc, pod_basis_dual, pod_basis)
                         
         for i in range(len_block_evaluation):
             if i > 0:
                 residual_slab = - reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift].copy(),pod_basis_dual) + reduced_mass_matrix_up_right_no_bc_estimator.dot(primal_reduced_solutions[i-1])
             else:
-                residual_slab = - reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift].copy(),pod_basis_dual) + reduced_mass_matrix_up_right_no_bc_estimator.dot(reduce_vector(last_bucket_end_solution, pod_basis))
+                residual_slab = - reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i+bucket_shift].copy(),pod_basis_dual) + reduce_vector(mass_matrix_up_right_no_bc.dot(last_bucket_end_solution), pod_basis_dual)
             temporal_interval_error.append(dual_reduced_solutions_slab[i].dot(residual_slab))
             goal_func_on_slab.append(primal_reduced_solutions[i].dot(reduce_vector(dual_rhs_no_bc[i],pod_basis)))
             if np.abs(temporal_interval_error[i] + goal_func_on_slab[i]) > 1e-12:
