@@ -590,11 +590,25 @@ print("true abs error:      " + str(true_abs_error))
 print("estimated abs error: " + str(estimated_abs_error))
 print("efficiency abs:      " + str(true_abs_error/estimated_abs_error))
 
-# %% error metric
+# %% error calculation
 
 true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
 esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
 
+temporal_interval_error_relative_fom = (J_h_t - J_r_t)/J_h_t
+
+real_max_error = np.max(np.abs(temporal_interval_error_relative_fom))
+real_max_error_index = np.argmax(np.abs(temporal_interval_error_relative_fom))
+                                 
+estimated_max_error = np.max(np.abs(temporal_interval_error_relative))
+estimated_max_error_index = np.argmax(np.abs(temporal_interval_error_relative))
+
+print(f"Largest estimated error at: {estimated_max_error_index} with: {estimated_max_error}")
+print(f"Largest real error at:      {real_max_error_index} with: {real_max_error}")
+print(f"We instead estimated:                 {np.abs(temporal_interval_error_relative)[real_max_error_index]}")
+
+
+# %% error metric
 if np.sum(true_tol) == np.sum(esti_tol):
     print("estimator works perfectly")
 else:
@@ -611,11 +625,8 @@ else:
 
 
 
-
 # %% Plotting
-time_step_size = 40.0 / (slab_properties["n_total"])
-
-
+time_step_size = primal_solutions_slab["time"][-1,-1] / (slab_properties["n_total"])
 
 # Cost functional
 plt.rcParams["figure.figsize"] = (10, 6)
@@ -652,7 +663,7 @@ plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
          np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         np.abs((J_h_t-J_r_t)/J_h_t), color='r', label="error - relative")
+         np.abs(temporal_interval_error_relative_fom), color='r', label="error - relative")
 plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
          [tol_rel, tol_rel], color='y', label="tolerance - relative")
 plt.grid()
