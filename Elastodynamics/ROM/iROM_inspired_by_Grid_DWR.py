@@ -628,7 +628,7 @@ else:
 
 
 # %% Plotting
-time_step_size = primal_solutions_slab["time"][-1,-1] / (slab_properties["n_total"])
+time_step_size = primal_solutions_slab["time"][-1][-1] / (slab_properties["n_total"])
 
 # Cost functional
 plt.rcParams["figure.figsize"] = (10, 6)
