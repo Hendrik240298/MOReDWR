@@ -824,7 +824,7 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 	  }
 	}
 	
-	std::string output_dir = "../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/";
+	std::string output_dir = "../../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/";
 	
 	////////////////////////////////////////////////////
 	// save system & jump matrix and rhs to file (NO BC)
@@ -902,7 +902,7 @@ void SpaceTime<dim>::apply_boundary_conditions(std::shared_ptr<Slab> &slab, unsi
     
     if (first_slab)
     {
-      std::ofstream boundary_id_out("../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
+      std::ofstream boundary_id_out("../../../Data/" + std::to_string(dim) + "D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(cycle) + "/boundary_id.txt");
       for (unsigned int i = 0; i < boundary_ids.size()-1; ++i)
 	boundary_id_out << boundary_ids[i] << " ";
       boundary_id_out << boundary_ids[boundary_ids.size()-1];
@@ -1058,7 +1058,7 @@ void SpaceTime<1>::output_svg(std::ofstream &out, Vector<double> &space_solution
 
 template<>
 void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
-	std::string output_dir = "../../Data/1D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
+	std::string output_dir = "../../../Data/1D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
 	
 	// highest and lowest value of solution (hardcoded for the given 1D problem)
 	double y_max = 0.009; //1.4; //std::max(*std::max_element(solution.begin(), solution.end()), 0.);
@@ -1087,7 +1087,7 @@ void SpaceTime<1>::output_results(const unsigned int refinement_cycle) {
 
 template<>
 void SpaceTime<2>::output_results(const unsigned int refinement_cycle) {
-	std::string output_dir = "../../Data/2D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
+	std::string output_dir = "../../../Data/2D/" + problem_name + "/slabwise/FOM/cycle=" + std::to_string(refinement_cycle) + "/";
 
 	// output results as VTK files
 	for (auto time_point : time_support_points)
@@ -1277,13 +1277,13 @@ void SpaceTime<dim>::run() {
 				<< std::endl;
 				
 		// create output directory if necessary
-		std::string dim_dir = "../../Data/" + std::to_string(dim) + "D/";
+		std::string dim_dir = "../../../Data/" + std::to_string(dim) + "D/";
 		std::string problem_dir = dim_dir + problem_name + "/";
 		std::string slabwise_dir = problem_dir + "slabwise/";
 		std::string output_dir_tmp = slabwise_dir + "FOM/";
 		std::string output_dir = slabwise_dir + "FOM/"+ "cycle=" + std::to_string(cycle) + "/";
 		std::cout << output_dir << std::endl;
-		for (auto dir : {"../../Data/", dim_dir.c_str(), problem_dir.c_str(), slabwise_dir.c_str(), output_dir_tmp.c_str(), output_dir.c_str()})
+		for (auto dir : {"../../../Data/", dim_dir.c_str(), problem_dir.c_str(), slabwise_dir.c_str(), output_dir_tmp.c_str(), output_dir.c_str()})
 		  mkdir(dir, S_IRWXU);
 
 		// reset values from last refinement cycle
