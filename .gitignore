@@ -39,3 +39,9 @@ Elastodynamics/ROM/images_show/cost_functional.png
 Elastodynamics/ROM/images_show/relative_estimate_vs_true_error.png
 Elastodynamics/ROM/images_show/estimate_vs_true_error.png
 Heat/ROM/2D/slabwise/images/estimae.png
+Heat/FOM/1D/slabwise/.project
+Heat/FOM/1D/slabwise/.cproject
+Heat/FOM/2D/all_at_once/.cproject
+Heat/FOM/2D/all_at_once/.project
+Heat/FOM/2D/slabwise/.cproject
+Heat/FOM/2D/slabwise/.project
