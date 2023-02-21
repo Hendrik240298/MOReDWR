@@ -228,7 +228,6 @@ reduced_dual_solutions = []
 reduced_dual_solutions_old = reduce_vector(np.zeros_like(dual_solutions[0]), pod_basis)
 
 projected_reduced_solutions = []
-projected_reduced_solutions_before_enrichment = []
 projected_reduced_dual_solutions = []
 
 dual_residual = []
@@ -241,20 +240,25 @@ temporal_interval_error_incidactor = []
 tol = 1e-10
 tol_rel = 1e-2
 tol_dual = 5e-1
-forwardsteps = 10
+
 
 # print("tol =     " + str(tol))
-print("tol_rel       = " + str(tol_rel))
-print("tol           = " + str(tol))
-print(f"forward steps = {forwardsteps}")
-print(" ")
+
 extime_solve = 0.0
 extime_dual_solve = 0.0
 extime_error = 0.0
 extime_update  =0.0
 
-nb_buckets = 32 #64*2*2# 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
+nb_buckets = 128 #64*2*2# 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(n_slabs/nb_buckets)
+
+forwardsteps = len_block_evaluation
+
+
+print("tol_rel       = " + str(tol_rel))
+print("tol           = " + str(tol))
+print(f"forward steps = {forwardsteps}")
+print(" ")
 
 start_execution = time.time()
 
@@ -457,7 +461,8 @@ extime_dual_solve += time.time() - extime_dual_solve_start
 extime_error_start = time.time()
 temporal_interval_error = []
 temporal_interval_error_relative = []
-    
+J_r_t = np.empty([n_slabs, 1])
+
 for i in range(n_slabs):
     tmp = -reduced_matrix_no_bc_estimator.dot(primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i],pod_basis_dual)
     if i > 0:
@@ -465,21 +470,16 @@ for i in range(n_slabs):
     else:
         tmp -= reduced_jump_matrix_no_bc_estimator.dot(reduce_vector(np.zeros(matrix_no_bc.shape[0]), pod_basis)) 
     temporal_interval_error.append(np.dot(reduced_dual_solutions[i], tmp))
-    goal_functional = np.dot(primal_reduced_solutions[i],  reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
-    temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(goal_functional+temporal_interval_error[-1]))
+    J_r_t[i] = np.dot(primal_reduced_solutions[i],  reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
+    temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(J_r_t[i]+temporal_interval_error[-1]))
 extime_error += time.time() - extime_error_start
 
 estimated_error = np.max(np.abs(temporal_interval_error_relative))
 
 print(f"Largest Error in Verification: {estimated_error}")
 
-
-# %%
-# reduced_solutions = reduced_solutions_buckets_combined
+# %% Simulation Data
 temporal_interval_error_incidactor = temporal_interval_error_incidactor_combinded
-# temporal_interval_error = temporal_interval_error_combinded
-# temporal_interval_error_relative = temporal_interval_error_relative_combinded
-
 
 print("FOM time:         " + str(execution_time_FOM))
 print("ROM time:         " + str(execution_time_ROM))
@@ -497,39 +497,22 @@ print("Update time:         " + str(extime_update))
 print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve))
 print(" ")
 
-original_stdout = sys.stdout  # Save a reference to the original standard output
-# with open('output/speedup_' + CASE + '_cycle_' + str(cycle) + '.txt', 'a') as f:
-#     sys.stdout = f # Change the standard output to the file we created.
-#     print(str(execution_time_FOM) + ', ' + str(execution_time_ROM) + ', ' + str(execution_time_FOM/execution_time_ROM))
-#     sys.stdout = original_stdout # Reset the standard output to its original value
 
-
-
-J_r = 0.
-J_r_t = np.empty([n_slabs, 1])
-J_r_t_before_enrichement = np.empty([n_slabs, 1])
-for i in range(n_slabs):
-    # J_r_t[i] = np.dot(projected_reduced_solutions[i], mass_matrix_no_bc.dot(projected_reduced_solutions[i]))
-    J_r_t[i] = np.dot(primal_reduced_solutions[i],  reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
-    # J_r_t_before_enrichement[i] = np.dot(projected_reduced_solutions_before_enrichment[i], mass_matrix_no_bc.dot(projected_reduced_solutions_before_enrichment[i]))
-    # print(np.mean(projected_reduced_solutions[i] -projected_reduced_solutions_before_enrichment[i]))
 J["u_r"] = np.sum(J_r_t) 
-J_r_t_before_enrichement = J_r_t
 print("J(u_h) =", J["u_h"])
 # TODO: in the future compare J(u_r) for different values of rprojected_reduced_dual_solutions
 print("J(u_r) =", J["u_r"])
 print(" ")
 
-# %% real error in cost functional
-real_temporal_interval_error_relative = []
-for i in range(1,n_slabs,1):
-    real_temporal_interval_error_relative.append(np.abs((J_h_t[i]-J_r_t_before_enrichement[i])/J_h_t[i]))
 
-# %% error estimation
+# %% error calculation
 true_error = J['u_h'] - J['u_r']
 
-real_max_error = np.max(np.abs((J_h_t - J_r_t)/J_h_t))
-real_max_error_index = np.argmax(np.abs((J_h_t - J_r_t)/J_h_t))
+temporal_interval_error_relative_fom = (J_h_t - J_r_t)/J_h_t
+
+real_max_error = np.max(np.abs(temporal_interval_error_relative_fom))
+real_max_error_index = np.argmax(np.abs(temporal_interval_error_relative_fom))
+                                 
 estimated_max_error = np.max(np.abs(temporal_interval_error_relative))
 estimated_max_error_index = np.argmax(np.abs(temporal_interval_error_relative))
 
@@ -538,17 +521,11 @@ print(f"Largest real error at:      {real_max_error_index} with: {real_max_error
 print(f"We instead estimated:                 {np.abs(temporal_interval_error_relative)[real_max_error_index]}")
 
 
-#print(np.sum(error_tol.astype(int)))
 
-np.abs((J_h_t - J_r_t)/J_h_t)
 
-J_r_t = J_r_t_before_enrichement
-
+# %% error classification
 true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
 esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
-
-#esti_tol = np.abs(np.array(temporal_interval_error).reshape(-1,1)/J_h_t) > tol_rel
-
 
 if np.sum(true_tol) == np.sum(esti_tol):
     print("estimator works perfectly")
@@ -561,10 +538,10 @@ else:
     print(f"(error > tol & esti < tol): {eltg} ({round(100 * eltg / n_slabs,1)} %)  (very bad)")
     print(f"(error < tol & esti > tol): {egtl} ({round(100 * egtl / n_slabs,1)} %)  (bad)")
     print(f"(error > tol & esti > tol): {egtg} ({round(100 * egtg / n_slabs,1)} %)  (good)")
-    print(f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / n_slabs,1)} %)  (good)")
+    print(f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / n_slabs,1)} %)  (very good)")
 
 
-
+# %% effectivity calculation
 n_slabs_filter=0
 eff_alternative_1 = 0
 eff_alternative_2 = 0
@@ -590,32 +567,25 @@ print(f"Effectivity index 2: {eff_alternative_1[0]}")
 print(f"Effectivity index 3: {eff_alternative_2[0]}")
 
 
-# %% Ploting
+
+# %% Plotting
 # Plot 3: temporal error
 # WARNING: hardcoding end time T = 4.
-time_step_size = 10.0 / (n_dofs["time"] / 2)
+time_step_size = (coordinates_t[0]+coordinates_t[-1]) / (n_dofs["time"] / 2)
 xx, yy = [], []
 xx_FOM, yy_FOM = [], []
 cc = []
-# for i, error in enumerate(temporal_interval_error):
-# for i, error in enumerate(temporal_interval_error_relative):
-for i, error in enumerate(real_temporal_interval_error_relative):
 
-    if temporal_interval_error_incidactor[i] == 0:
-        xx += [i * time_step_size,
-               (i + 1) * time_step_size, (i + 1) * time_step_size]
-        yy += [abs(error), abs(error), np.inf]
-    else:
-        xx_FOM += [i * time_step_size,
-                   (i + 1) * time_step_size, (i + 1) * time_step_size]
-        yy_FOM += [abs(error), abs(error), np.inf]
-    #     cc += ['g']
-    # axs[2].plot(xx, yy)
-    # axs[2].plot(xx_FOM, yy_FOM, 'r')
-    # axs[2].set_xlabel("$t$")
-    # axs[2].set_ylabel("$\\eta$")
-    # axs[2].set_yscale("log")
-    # axs[2].set_title("temporal error estimate")
+for i, error in enumerate(temporal_interval_error_relative):
+    xx += [i * time_step_size,
+            (i + 1) * time_step_size, (i + 1) * time_step_size]
+    yy += [abs(error), abs(error), np.inf]
+
+
+for i, error in enumerate(temporal_interval_error_relative_fom):
+    xx_FOM += [i * time_step_size,
+                (i + 1) * time_step_size, (i + 1) * time_step_size]
+    yy_FOM += [abs(error), abs(error), np.inf]
 
 # plot temporal error
 plt.rc('text', usetex=True)
@@ -727,8 +697,6 @@ plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
          temporal_interval_error, c='#1f77b4', label="estimate")
 plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
          J_h_t-J_r_t, color='r', label="error")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#          J_h_t-J_r_t_before_enrichement, color='g', label="error_before_enrichment")
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
