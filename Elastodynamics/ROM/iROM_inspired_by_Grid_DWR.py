@@ -592,8 +592,6 @@ print("efficiency abs:      " + str(true_abs_error/estimated_abs_error))
 
 # %% error calculation
 
-true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
-esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
 
 temporal_interval_error_relative_fom = (J_h_t - J_r_t)/J_h_t
 
@@ -609,6 +607,10 @@ print(f"We instead estimated:                 {np.abs(temporal_interval_error_re
 
 
 # %% error metric
+
+true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
+esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
+
 if np.sum(true_tol) == np.sum(esti_tol):
     print("estimator works perfectly")
 else:
