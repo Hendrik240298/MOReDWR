@@ -31,17 +31,19 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines += grid
 
     for key, value in solution.items():
-        lines.append(f"SCALARS {key}_x double 1")
+        
+        key2str = {"displacement": "disp", "velocity": "velo"}
+        lines.append(f"SCALARS x_{key2str[key]} double 1")
         lines.append("LOOKUP_TABLE default")
         lines.append(" ".join(np.round(value[0::3], decimals=7).astype(
             np.double).astype(str)) + " ")
 
-        lines.append(f"SCALARS {key}_y double 1")
+        lines.append(f"SCALARS y_{key2str[key]} double 1")
         lines.append("LOOKUP_TABLE default")
         lines.append(" ".join(np.round(value[1::3], decimals=7).astype(
             np.double).astype(str)) + " ")
 
-        lines.append(f"SCALARS {key}_z double 1")
+        lines.append(f"SCALARS z_{key2str[key]} double 1")
         lines.append("LOOKUP_TABLE default")
         lines.append(" ".join(np.round(value[2::3], decimals=7).astype(
             np.double).astype(str)) + " ")

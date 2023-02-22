@@ -13,8 +13,9 @@ import sys
 PLOTTING = False
 INTERPOLATION_TYPE = "nearest"  # "linear", "cubic"
 LOAD_PRIMAL_SOLUTION = False
-CASE = "moving"    ## "two" or "moving"
-OUTPUT_PATH = "../../FOM/slabwise/output_" + CASE + "/dim=1/"
+CASE = "moving_source"    ## "two" or "moving"
+OUTPUT_PATH = "../../../Data/1D/" + CASE + "/slabwise/FOM/"
+# FOM/slabwise/output_" + CASE + "/dim=1/"
 
 
 def iPOD(POD, bunch, singular_values, snapshot, total_energy):
@@ -79,7 +80,7 @@ def iPOD(POD, bunch, singular_values, snapshot, total_energy):
 #     if "7" not in cycle:
 #         continue    
 for number_runs in range(1):
-    cycle = "cycle=7"
+    cycle = "cycle=4"
     print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
     # NO BC
     [data, row, column] = np.loadtxt(OUTPUT_PATH + cycle + "/matrix_no_bc.txt")
@@ -172,7 +173,7 @@ for number_runs in range(1):
     # plot primal solution
     primal_solution = np.hstack(primal_solutions)
     if PLOTTING:
-    last_dual_solution = 
+    # last_dual_solution = 
         grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
         primal_grid = scipy.interpolate.griddata(
             coordinates, primal_solution, (grid_t, grid_x), method=INTERPOLATION_TYPE)
@@ -500,11 +501,11 @@ for number_runs in range(1):
                                ) + " / " + str(len(temporal_interval_error_incidactor)))
     projected_reduced_solution = np.hstack(projected_reduced_solutions)
     
-    original_stdout = sys.stdout # Save a reference to the original standard output
-    with open('output/speedup_' + CASE + '_cycle_' + str(cycle) + '.txt', 'a') as f:
-        sys.stdout = f # Change the standard output to the file we created.
-        print(str(execution_time_FOM) + ', ' + str(execution_time_ROM) + ', ' + str(execution_time_FOM/execution_time_ROM))
-        sys.stdout = original_stdout # Reset the standard output to its original value
+    # original_stdout = sys.stdout # Save a reference to the original standard output
+    # with open('output/speedup_' + CASE + '_cycle_' + str(cycle) + '.txt', 'a') as f:
+    #     sys.stdout = f # Change the standard output to the file we created.
+    #     print(str(execution_time_FOM) + ', ' + str(execution_time_ROM) + ', ' + str(execution_time_FOM/execution_time_ROM))
+    #     sys.stdout = original_stdout # Reset the standard output to its original value
 
 
     J_r = 0.
@@ -517,163 +518,3 @@ for number_runs in range(1):
     print("J(u_h) =", J["u_h"])
     # TODO: in the future compare J(u_r) for different values of r
     print("J(u_r) =", J["u_r"][-1])
-    # %% plot
-
-    if PLOTTING:
-        grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
-        reduced_grid = scipy.interpolate.griddata(
-            coordinates,
-            projected_reduced_solution,
-            (grid_t,
-             grid_x),
-            method=INTERPOLATION_TYPE)
-        error_grid = scipy.interpolate.griddata(
-            coordinates,
-            np.abs(
-                projected_reduced_solution -
-                primal_solution),
-            (grid_t,
-             grid_x),
-            method=INTERPOLATION_TYPE)
-        plt.rcParams["figure.figsize"] = (10,5)
-        fig, axs = plt.subplots(2,1)
-        #fig.suptitle(f"Projected reduced solution (ref={cycle.split('=')[1]})")
-        # Plot 1: u_r
-        im0 = axs[0].imshow(reduced_grid.T, extent=(
-            0, 4, 0, 1), origin='lower')
-        plt.xlabel('$t \; [$s$]$')
-        axs[0].set_ylabel("$x$")
-        axs[0].set_title("$u_N$")
-        fig.colorbar(im0, ax=axs[0])
-        #plt.subplots_adjust(hspace=0.5)
-        # Plot 2: u_h - u_r
-        im1 = axs[1].imshow(error_grid.T, extent=(0, 4, 0, 1), origin='lower')
-        plt.xlabel('$t \; [$s$]$')
-        axs[1].set_ylabel("$x$")
-        axs[1].set_title("$u_h - u_N$")
-        fig.colorbar(im1, ax=axs[1])
-        plt.savefig("output/reduced_solution_" + CASE + ".eps", format='eps')
-        plt.show()
-
-
-        # ## plot temporal error
-        # plt.rc('text', usetex=True)
-        # plt.imshow(reduced_grid.T, extent=(0, 4, 0, 1), origin='lower')
-        # plt.legend()
-        # # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        # plt.xlabel('$t \; [$s$]$')
-        # plt.ylabel("$u_N$")
-        # #plt.xlim([0,n_slabs*time_step_size])
-        # #plt.title("temporal evaluation of cost funtional")
-        # plt.savefig("output/reduced_solution_" + CASE + ".eps", format='eps')    
-        # plt.show()        
-
-
-        # Plot 3: temporal error
-        # WARNING: hardcoding end time T = 4.
-        time_step_size = 4.0 / (n_dofs["time"] / 2)
-        xx, yy = [], []
-        xx_FOM, yy_FOM = [], []
-        cc = []
-        for i, error in enumerate(temporal_interval_error):
-            if temporal_interval_error_incidactor[i] == 0:
-                xx += [i * time_step_size,
-                       (i + 1) * time_step_size, (i + 1) * time_step_size]
-                yy += [abs(error), abs(error), np.inf]
-            else:
-                xx_FOM += [i * time_step_size,
-                           (i + 1) * time_step_size, (i + 1) * time_step_size]
-                yy_FOM += [abs(error), abs(error), np.inf]
-        #     cc += ['g']
-        # axs[2].plot(xx, yy)
-        # axs[2].plot(xx_FOM, yy_FOM, 'r')
-        # axs[2].set_xlabel("$t$")
-        # axs[2].set_ylabel("$\\eta$")
-        # axs[2].set_yscale("log")
-        # axs[2].set_title("temporal error estimate")
-    
-        
-        ## plot temporal error
-        plt.rc('text', usetex=True)
-        # plt.rcParams["figure.figsize"] = (10,2)
-        plt.plot(xx, yy,label="$u_N$")
-        plt.plot(xx_FOM, yy_FOM,color='r',label="$u_h$")
-        plt.grid()
-        plt.legend()
-       # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        plt.xlabel('$t \; [$s$]$')
-        plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{Q_l}$")
-        plt.yscale("log")
-        plt.xlim([0,n_slabs*time_step_size])
-        #plt.title("temporal evaluation of cost funtional")
-        plt.savefig("output/temporal_error_cost_funtional_" + CASE + ".eps", format='eps')    
-        plt.show()
-        
-        
-        
-        ## plot temporal evolution of cost funtiponal 
-        plt.rc('text', usetex=True)
-        # plt.rcParams["figure.figsize"] = (10,2)
-        plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_h_t,color='r',label="$u_h$")
-        plt.plot(np.arange(0,n_slabs*time_step_size,time_step_size),J_r_t,'--',c='#1f77b4',label="$u_N$")
-        plt.grid()
-        plt.legend()
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        plt.xlabel('$t \; [$s$]$')
-        plt.ylabel("$J(u)\\raisebox{-.5ex}{$|$}_{Q_l}$")
-        plt.xlim([0,n_slabs*time_step_size])
-        #plt.title("temporal evaluation of cost funtional")
-        plt.savefig("output/temporal_cost_funtional_" + CASE + ".eps", format='eps')
-        plt.show()
-        
-        
-        
-    reduced_dual_matrix = dual_space_time_pod_basis.T.dot(
-        matrix_no_bc.T.dot(dual_space_time_pod_basis))
-    reduced_dual_jump_matrix = dual_space_time_pod_basis.T.dot(
-        jump_matrix_no_bc.T.dot(dual_space_time_pod_basis))
-    # --------------
-    # %% dual ROM solve
-    reduced_dual_solutions = []
-    projected_reduced_dual_solutions = []
-    for i in list(range(n_slabs))[::-1]:
-        reduced_dual_rhs = dual_space_time_pod_basis.T.dot(dual_rhs_no_bc[i])
-        if len(reduced_dual_solutions):
-            reduced_dual_rhs -= reduced_dual_jump_matrix.dot(
-                reduced_dual_solutions[-1])
-        reduced_dual_solutions.append(scipy.sparse.linalg.spsolve(
-            reduced_dual_matrix, reduced_dual_rhs))
-        projected_reduced_dual_solutions.append(
-            dual_space_time_pod_basis.dot(reduced_dual_solutions[-1]))
-
-    projected_reduced_dual_solutions = projected_reduced_dual_solutions[::-1]
-    projected_reduced_dual_solution = np.hstack(
-        projected_reduced_dual_solutions)
-    # ----------------
-    # %% error estimation
-    true_error = J['u_h'] - J['u_r'][-1]
-
-    # using FOM dual solution
-    print("\nUsing z_h:")
-    print("----------")
-    error_estimator = sum(temporal_interval_error)
-    print(f"True error:        {true_error}")
-    print(f"Estimated error:   {error_estimator}")
-    print(f"Effectivity index: {abs(true_error / error_estimator)}")
-    # using ROM dual solution
-    temporal_interval_error_cheap = []
-    for i in range(n_slabs):
-        # temporal localization of ROM error (using ROM dual solution)
-        tmp = -matrix_no_bc.dot(projected_reduced_solutions[i]) + rhs_no_bc[i]
-        if i >= 1:
-            tmp -= jump_matrix_no_bc.dot(projected_reduced_solutions[i - 1])
-        temporal_interval_error_cheap.append(
-            np.dot(projected_reduced_dual_solutions[i], tmp))
-
-    print("\nUsing z_r:")
-    print("----------")
-    error_estimator_cheap = sum(temporal_interval_error_cheap)
-    print(f"True error:              {true_error}")
-    print(f"Cheap estimated error:   {error_estimator_cheap}")
-    print(
-        f"Effectivity index:       {abs(true_error / error_estimator_cheap)}")
