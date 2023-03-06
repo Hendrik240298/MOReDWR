@@ -16,6 +16,7 @@ INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
 CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
+MOTHER_PATH = "/home/hendrik/Cloud/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
 cycle = "cycle=4"
 SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
@@ -431,13 +432,11 @@ for it_bucket in range(nb_buckets):
     #     temporal_interval_error_combinded.append(temporal_interval_error[i])
     #     temporal_interval_error_relative_combinded.append(temporal_interval_error_relative[i])
     
-end_execution = time.time()
-execution_time_ROM = end_execution - start_execution
 
 # %% ---------------------- VERIFICATION ------------------------------------------------------------
 
 
-extime_solve_start = time.time()
+start_time = time.time()
 primal_reduced_solutions = [reduce_vector(np.zeros(matrix_no_bc.shape[0]), pod_basis)]
 for i in range(n_slabs):                
     reduced_rhs = reduce_vector(rhs_no_bc[i], pod_basis)
@@ -472,7 +471,10 @@ for i in range(n_slabs):
     temporal_interval_error.append(np.dot(reduced_dual_solutions[i], tmp))
     J_r_t[i] = np.dot(primal_reduced_solutions[i],  reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
     temporal_interval_error_relative.append(np.abs(temporal_interval_error[-1])/np.abs(J_r_t[i]+temporal_interval_error[-1]))
-extime_error += time.time() - extime_error_start
+
+time_verification = time.time() - start_time
+end_execution = time.time()
+execution_time_ROM = end_execution - start_execution
 
 estimated_error = np.max(np.abs(temporal_interval_error_relative))
 
@@ -494,7 +496,8 @@ print("ROM dual Solve time: " + str(extime_dual_solve))
 # print("Project time:        " + str(extime_project))
 print("Error est time:      " + str(extime_error))
 print("Update time:         " + str(extime_update))
-print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve))
+print("Verification:        " + str(time_verification))
+print("Overall time:        " + str(extime_solve+extime_error+extime_update+extime_dual_solve+time_verification))
 print(" ")
 
 
@@ -590,8 +593,9 @@ for i, error in enumerate(temporal_interval_error_relative_fom):
 # plot temporal error
 plt.rc('text', usetex=True)
 # plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(xx, yy, label="ROM solves")
-plt.plot(xx_FOM, yy_FOM, color='r', label="FOM solves")
+# plt.plot(xx, yy, label="ROM solves")
+# plt.plot(xx_FOM, yy_FOM, color='r', label="FOM solves")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size), abs(temporal_interval_error_relative_fom))
 plt.plot([0,10],[1e-2,1e-2], '--', color='green') #, label="1\% relative error")
 plt.text(7.5, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
 plt.grid()
@@ -603,6 +607,7 @@ plt.xlabel('$t \; [$s$]$',fontsize=15)
 plt.ylabel("$^{|J(u^{FOM}) - J(u^{ROM})|}/_{|J(u^{FOM})|}$",fontsize=16)
 plt.yscale("log")
 plt.xlim([0, n_slabs*time_step_size])
+plt.ylim(top=3*tol_rel)
 #plt.title("temporal evaluation of cost funtional")
 plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.eps", format='eps')
 plt.savefig(SAVE_PATH + "temporal_error_cost_funtional.png", format='png')
