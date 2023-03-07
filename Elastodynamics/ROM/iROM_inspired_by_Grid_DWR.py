@@ -26,6 +26,8 @@ TODO Try to repair primal FOM
 
 PLOTTING = False
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
+MOTHER_PATH = "/home/hendrik/Cloud/Code/MORe_DWR/Elastodynamics/"
+
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 cycle = "cycle=1"
@@ -48,7 +50,7 @@ print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
 ENERGY_PRIMAL = {"displacement": 0.99999999999,
                  "velocity":     0.99999999999}
 ENERGY_DUAL = {"displacement": 0.99999999999,
-                 "velocity":     0.99999999999}
+                "velocity":     0.99999999999}
 
 # ENERGY_PRIMAL = {"displacement": 0.999999,
 #                  "velocity":     0.999999}
@@ -631,7 +633,7 @@ else:
 time_step_size = primal_solutions_slab["time"][-1][-1] / (slab_properties["n_total"])
 
 # Cost functional
-plt.rcParams["figure.figsize"] = (10, 6)
+# plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
          J_h_t, color='r', label="$u_h$")
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
@@ -639,14 +641,16 @@ plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t [$s$]$')
-plt.ylabel("$J(u)$")
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$J(u(t))$",fontsize=16)
+plt.xlim([0, primal_solutions_slab["time"][-1][-1]])
+
 plt.savefig('images/cost_functional.png')
 plt.show()
 
 
 # plot temporal evolution of error and error estimate
-plt.rcParams["figure.figsize"] = (10, 6)
+# plt.rcParams["figure.figsize"] = (10, 6)
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
          (np.array(temporal_interval_error)), c='#1f77b4', label="estimate")
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
@@ -662,16 +666,20 @@ plt.show()
 
 # plot temporal evolution of relative error and error estimate
 plt.rcParams["figure.figsize"] = (10, 6)
+# plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+#          np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
 plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         np.abs(temporal_interval_error_relative_fom), color='r', label="error - relative")
-plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
-         [tol_rel, tol_rel], color='y', label="tolerance - relative")
+         np.abs(temporal_interval_error_relative_fom))#, color='r', label="error - relative")
+
+plt.plot([0,40],[1e-2,1e-2], '--', color='green') #, label="1\% relative error")
+plt.text(35, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
+
+# plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
+#          [tol_rel, tol_rel], color='y', label="tolerance - relative")
 plt.grid()
 plt.legend()
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t [$s$]$')
+plt.xlabel('$t \; [$s$]$')
 plt.ylabel("$error$")
 plt.yscale('log')
 plt.savefig('images/relative_estimate_vs_true_error.png')
