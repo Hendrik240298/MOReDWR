@@ -45,3 +45,7 @@ Heat/FOM/2D/all_at_once/.cproject
 Heat/FOM/2D/all_at_once/.project
 Heat/FOM/2D/slabwise/.cproject
 Heat/FOM/2D/slabwise/.project
+Heat/ROM/2D/slabwise/images/cycle=4_tol=0.01_nb_sslabs=128_error_estimate_over_time.png
+**/images/**
+**/results/**
+**/rusult_in_paper_rn/**
