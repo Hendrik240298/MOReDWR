@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import os
 import time
 import sys
+import random
+
 from iPOD import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
 from auxiliaries import save_vtk, read_in_LES, apply_boundary_conditions, read_in_discretization
 from auxiliaries import solve_primal_FOM_step, solve_dual_FOM_step, solve_primal_ROM_step, reorder_matrix
@@ -41,6 +43,17 @@ if not os.path.exists(SAVE_PATH):
 
 
 print(f"\n{'-'*12}\n| {cycle}: |\n{'-'*12}\n")
+
+
+identifier = random.randint(0, 99999)
+identifier = format(identifier, '05d')
+print(identifier)
+#"../../FOM/slabwise/output_" + CASE + "/dim=1/"
+
+# redirect terminjal output to file
+orig_stdout = sys.stdout
+f = open("out.txt", "w")
+sys.stdout = f
 
 # ENERGY_DUAL   = {"displacement": 1-1e-8,
 #                  "velocity":     1-1e-8}
@@ -324,7 +337,7 @@ goal_func_error = []
 
 tol = 5e-4/(slab_properties["n_total"])
 tol = 1e-5
-tol_rel = 1e-2
+tol_rel = 5e-2
 tol_dual = 5e-1
 forwardsteps = 5
 
@@ -367,7 +380,7 @@ temporal_interval_error_relative_combinded = []
 
 last_bucket_end_solution = np.zeros(matrix_no_bc.shape[0])
 for it_bucket in range(nb_buckets):
-    print("bucket " + str(it_bucket+1) + " of " + str(nb_buckets) + " of length: " + str(len_block_evaluation)) 
+    # print("bucket " + str(it_bucket+1) + " of " + str(nb_buckets) + " of length: " + str(len_block_evaluation)) 
     bucket_shift = it_bucket*len_block_evaluation
     temporal_interval_error_incidactor = np.zeros(len_block_evaluation)
     while(True):
@@ -414,7 +427,7 @@ for it_bucket in range(nb_buckets):
         
         time_estimate += time.time() - start_time
         
-        print(estimated_error)
+        # print(estimated_error)
         
         # ----------------------------------------- Basis Update -----------------------------------------
         start_time = time.time()
@@ -422,8 +435,8 @@ for it_bucket in range(nb_buckets):
             break
         else:
             index_primal = np.argmax(np.abs(temporal_interval_error_relative))
-            print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
-            print(" ")
+            # print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
+            # print(" ")
 
             temporal_interval_error_incidactor[index_primal] = 1
         
@@ -584,6 +597,7 @@ efficiency = true_error/estimated_error
 
 print("J_h:                 " + str(np.sum(J_h_t)))
 print("J_r:                 " + str(np.sum(J_r_t)))
+print("|J(u_h) - J(u_r)|/|J(u_h)| =", np.abs(np.sum(J_h_t) - np.sum(J_r_t))/np.abs(np.sum(J_h_t)))
 print("true error:          " + str(true_error))
 print("estimated error:     " + str(estimated_error))
 print("efficiency:          " + str(efficiency))
@@ -630,57 +644,68 @@ else:
 
 
 # %% Plotting
-time_step_size = primal_solutions_slab["time"][-1][-1] / (slab_properties["n_total"])
 
-# Cost functional
-# plt.rcParams["figure.figsize"] = (10, 6)
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         J_h_t, color='r', label="$u_h$")
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         J_r_t, '--', c='#1f77b4', label="$u_N$")
-plt.grid()
-plt.legend()
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$J(u(t))$",fontsize=16)
-plt.xlim([0, primal_solutions_slab["time"][-1][-1]])
+prefix_plot = cycle + "_" + "tol=" + str(tol_rel) + "_" + "nb_sslabs=" + str(nb_buckets) + "_"
+os.system('mv out.txt' + ' results/' + prefix_plot + str(identifier) + '.txt')
 
-plt.savefig('images/cost_functional.png')
-plt.show()
+if PLOTTING:
+    time_step_size = primal_solutions_slab["time"][-1][-1] / (slab_properties["n_total"])
 
+    # Cost functional
+    # plt.rcParams["figure.figsize"] = (10, 6)
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+        J_h_t, color='r', label="$u_h$")
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+        J_r_t, '--', c='#1f77b4', label="$u_N$")
+    plt.grid()
+    plt.legend(fontsize=14,loc='upper right')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    plt.xlabel('$t \; [$s$]$')
+    plt.ylabel("$J(u)$",fontsize=16)
+    plt.xlim([0, primal_solutions_slab["time"][-1][-1]])
 
-# plot temporal evolution of error and error estimate
-# plt.rcParams["figure.figsize"] = (10, 6)
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         (np.array(temporal_interval_error)), c='#1f77b4', label="estimate")
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         (J_h_t-J_r_t), color='r', label="error")
-plt.grid()
-plt.legend()
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t [$s$]$')
-plt.ylabel("$error$")
-plt.savefig('images/estimate_vs_true_error.png')
-plt.show()
+    plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.eps", format='eps')
+    plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.png", format='png')
+    plt.show()
 
 
-# plot temporal evolution of relative error and error estimate
-plt.rcParams["figure.figsize"] = (10, 6)
-# plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-#          np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
-plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
-         np.abs(temporal_interval_error_relative_fom))#, color='r', label="error - relative")
+    # plot temporal evolution of error and error estimate
+    # plt.rcParams["figure.figsize"] = (10, 6)
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+        (np.array(temporal_interval_error)), c='#1f77b4', label="estimate")
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+        (J_h_t-J_r_t), color='r', label="error")
+    plt.grid()
+    plt.legend()
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    plt.xlabel('$t [$s$]$')
+    plt.ylabel("$error$")
+    plt.savefig('images/estimate_vs_true_error.png')
+    plt.show()
 
-plt.plot([0,40],[1e-2,1e-2], '--', color='green') #, label="1\% relative error")
-plt.text(35, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
 
-# plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
-#          [tol_rel, tol_rel], color='y', label="tolerance - relative")
-plt.grid()
-plt.legend()
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$error$")
-plt.yscale('log')
-plt.savefig('images/relative_estimate_vs_true_error.png')
-plt.show()
+    # plot temporal evolution of relative error and error estimate
+    # plt.rcParams["figure.figsize"] = (10, 6)
+    # plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+    #          np.abs(np.array(temporal_interval_error_relative)), c='#1f77b4', label="estimate - relative")
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
+        np.abs(temporal_interval_error_relative_fom), color='r', label="exact")#, color='r', label="error - relative")
+    plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1], 
+        [abs(ele) for ele in temporal_interval_error_relative],'--', c='#1f77b4', label="estimate")
+    plt.plot([0,40],[1e-2,1e-2], '--', color='green') #, label="1\% relative error")
+    # plt.text(35, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
+    plt.text(27, 1.2e-2,"$" + str(tol_rel*100) +"\%$ relative error" , fontsize=12, color='green')
+
+    # plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
+    #          [tol_rel, tol_rel], color='y', label="tolerance - relative")
+    plt.grid()
+    plt.legend()
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    plt.xlabel('$t \; [$s$]$')
+    plt.ylabel("$error$")
+    plt.yscale('log')
+    plt.xlim([0, 40])
+    plt.ylim(top=3*tol_rel)
+    plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.eps", format='eps')
+    plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.png", format='png')
+    plt.show()
