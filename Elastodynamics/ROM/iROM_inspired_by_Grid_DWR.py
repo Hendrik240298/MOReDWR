@@ -337,7 +337,7 @@ goal_func_error = []
 
 tol = 5e-4/(slab_properties["n_total"])
 tol = 1e-5
-tol_rel = 5e-2
+tol_rel = 10e-2
 tol_dual = 5e-1
 forwardsteps = 5
 

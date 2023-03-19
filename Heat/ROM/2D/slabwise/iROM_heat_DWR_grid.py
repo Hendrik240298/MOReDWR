@@ -248,7 +248,7 @@ temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
 tol = 1e-10
-tol_rel = 0.1e-2
+tol_rel = 10e-2
 tol_dual = 5e-1
 
 
@@ -258,6 +258,7 @@ extime_solve = 0.0
 extime_dual_solve = 0.0
 extime_error = 0.0
 extime_update  =0.0
+number_FOM_solves = 0
 
 nb_buckets = 128 #64*2*2# 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(n_slabs/nb_buckets)
@@ -373,7 +374,7 @@ for it_bucket in range(nb_buckets):
                         matrix_no_bc,
                         ENERGY_PRIMAL)
             LU_primal, piv_primal = scipy.linalg.lu_factor(reduced_system_matrix)
-
+            number_FOM_solves += 1
             reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
             
             forwarded_reduced_solutions = []
@@ -421,7 +422,7 @@ for it_bucket in range(nb_buckets):
                         dual_matrix_no_bc,
                         ENERGY_DUAL)    
             reduced_mass_matrix_no_bc = reduce_matrix(mass_matrix_no_bc, pod_basis_dual, pod_basis)
-
+            number_FOM_solves += 1
             reduced_matrix_no_bc_estimator = reduce_matrix(matrix_no_bc, pod_basis_dual, pod_basis)
             reduced_jump_matrix_no_bc_estimator = reduce_matrix(jump_matrix_no_bc, pod_basis_dual, pod_basis)
             reduced_mass_matrix_no_bc_cst_fct = reduce_matrix(mass_matrix_no_bc, pod_basis, pod_basis)
@@ -497,8 +498,8 @@ print("ROM time:         " + str(execution_time_ROM))
 print("speedup: act/max: " + str(execution_time_FOM/execution_time_ROM) + " / " + str(len(temporal_interval_error_incidactor)/(2*np.sum(temporal_interval_error_incidactor))))
 print("Size ROM:         " + str(pod_basis.shape[1]))
 print("Size ROM - dual:  " + str(pod_basis_dual.shape[1]))
-print("FOM solves:       " + str(np.sum(temporal_interval_error_incidactor)
-                           ) + " / " + str(len(temporal_interval_error_incidactor)))
+print("FOM solves:       " + str(number_FOM_solves)
+                            + " / " + str(len(temporal_interval_error_incidactor)))
 print(" ")
 print("ROM Solve time:      " + str(extime_solve))
 print("ROM dual Solve time: " + str(extime_dual_solve))
