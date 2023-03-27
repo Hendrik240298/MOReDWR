@@ -248,6 +248,11 @@ temporal_interval_error = []
 temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
+index_fom_solves = []
+record_basis_size = []
+record_dual_basis_size = []
+
+
 tol = 1e-10
 tol_rel = 1e-2
 tol_dual = 5e-1
@@ -350,7 +355,7 @@ for it_bucket in range(nb_buckets):
             index_dual = index_primal
             # print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
             # print(" ")
-
+            index_fom_solves.append([index_primal+bucket_shift, estimated_error])
             temporal_interval_error_incidactor[index_primal] = 1
             # print(f"i:            {i}")
             # print(f"index_primal: {index_primal}")
@@ -439,6 +444,8 @@ for it_bucket in range(nb_buckets):
     
     last_bucket_end_solution = project_vector(primal_reduced_solutions[-1],pod_basis)   #projected_reduced_solutions[-1]
     
+    record_basis_size.append((pod_basis.shape[1]))
+    record_dual_basis_size.append((pod_basis_dual.shape[1]))
     for i in range(len_block_evaluation):
     #     reduced_solutions_buckets_combined.append(primal_reduced_solutions[i])
         temporal_interval_error_incidactor_combinded.append(temporal_interval_error_incidactor[i])
@@ -613,30 +620,30 @@ for i, error in enumerate(temporal_interval_error_relative_fom):
 
 # plot temporal error
 plt.rc('text', usetex=True)
-# # plt.rcParams["figure.figsize"] = (10,2)
-# # plt.plot(xx, yy, label="ROM solves")
-# # plt.plot(xx_FOM, yy_FOM, color='r', label="FOM solves")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size), abs(temporal_interval_error_relative_fom), color='r', label="exact")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size), [abs(ele) for ele in temporal_interval_error_relative],'--', c='#1f77b4', label="estimate")
-# plt.plot([0,10],[tol_rel,tol_rel], '--', color='green') #, label="1\% relative error")
-# plt.text(3, 1.2e-2,"$" + str(tol_rel*100) +"\%$ relative error" , fontsize=12, color='green')
-# plt.grid()
-# plt.legend( fontsize=14)
-# # plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-# plt.xlabel('$t \; [$s$]$',fontsize=15)
-# # plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
-# # plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{I_m}$",fontsize=16)
-# plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
-# plt.yscale("log")
-# plt.xlim([0, n_slabs*time_step_size])
-# plt.ylim(top=3*tol_rel)
+# plt.rcParams["figure.figsize"] = (10,2)
+# plt.plot(xx, yy, label="ROM solves")
+# plt.plot(xx_FOM, yy_FOM, color='r', label="FOM solves")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size), abs(temporal_interval_error_relative_fom), color='r', label="exact")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size), [abs(ele) for ele in temporal_interval_error_relative],'--', c='#1f77b4', label="estimate")
+plt.plot([0,10],[tol_rel,tol_rel], '--', color='green') #, label="1\% relative error")
+plt.text(3, 1.2e-2,"$" + str(tol_rel*100) +"\%$ relative error" , fontsize=12, color='green')
+plt.grid()
+plt.legend( fontsize=14)
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+plt.xlabel('$t \; [$s$]$',fontsize=15)
+# plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
+# plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{I_m}$",fontsize=16)
+plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
+plt.yscale("log")
+plt.xlim([0, n_slabs*time_step_size])
+plt.ylim(top=3*tol_rel)
 
-# #plt.title("temporal evaluation of cost funtional")
-# plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.eps", format='eps')
-# plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.png", format='png')
+#plt.title("temporal evaluation of cost funtional")
+plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.png", format='png')
 
 
-# plt.show()
+plt.show()
 
 
 
@@ -703,45 +710,90 @@ plt.rc('text', usetex=True)
 # # plt.show()
 
 
-# # plot temporal evolution of cost funtiponal
-# plt.rc('text', usetex=True)
-# # plt.rcParams["figure.figsize"] = (10,2)
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#           J_h_t, color='r', label="$u_h$")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#           J_r_t, '--', c='#1f77b4', label="$u_N$")
+# plot temporal evolution of cost funtiponal
+plt.rc('text', usetex=True)
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_h_t, color='r', label="$u_h$")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+          J_r_t, '--', c='#1f77b4', label="$u_N$")
+plt.grid()
+plt.legend(fontsize=14,loc='upper right')
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$J(u)$",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+#plt.title("temporal evaluation of cost funtional")
+plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.png", format='png')
+plt.show()
+
+
+# plot temporal evolution of cost funtiponal
+# plt.rcParams["figure.figsize"] = (10,2)
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+         J_h_t-J_r_t, color='r', label="exact")
+plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
+         temporal_interval_error, c='#1f77b4', label="estimate")
+
+plt.grid()
+plt.legend(fontsize=14)
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$J(u_h) - J(u_N)$",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+#plt.title("temporal evaluation of cost funtional")
+plt.savefig("images/" + prefix_plot + "error_estimate_over_time.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "error_estimate_over_time.png", format='png')
+plt.show()
+
+
+
+
+
+xx_index, yy_index = [], []
+for i in range(len(index_fom_solves)):
+    xx_index += [index_fom_solves[i][0] * time_step_size,
+                (index_fom_solves[i][0] + 1) * time_step_size, (index_fom_solves[i][0] + 1) * time_step_size]
+    yy_index += [index_fom_solves[i][1],index_fom_solves[i][1], np.inf]      
+
+
+
+plt.scatter([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], marker='x',c='#1f77b4', label="Basis enrichment")
+plt.plot([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], '--' ,marker='x',c='#1f77b4')
+# plt.plot(xx_index,yy_index, color='r')
+plt.grid()
+plt.legend(fontsize=14)
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+plt.yscale("log")
+
+plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.png", format='png')
+plt.show()
+
+print(len(index_fom_solves))
+
+
+
+plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size/len(record_basis_size)), record_basis_size, c='#1f77b4',label="primal")
 # plt.grid()
-# plt.legend(fontsize=14,loc='upper right')
+plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size/len(record_dual_basis_size)), record_dual_basis_size, c='r',label="dual")
+#     np.arange(len(record_basis_size))*len_block_evaluation*time_step_size, record_basis_size, c='#1f77b4')
+plt.grid()
+plt.legend(fontsize=14)
 # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-# plt.xlabel('$t \; [$s$]$')
-# plt.ylabel("$J(u)$",fontsize=16)
-# plt.xlim([0, n_slabs*time_step_size])
-# #plt.title("temporal evaluation of cost funtional")
-# plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.eps", format='eps')
-# plt.savefig("images/" + prefix_plot + "temporal_cost_funtional.png", format='png')
-# plt.show()
+plt.xlabel("$t$ $[$s$]$",fontsize=16)
+plt.ylabel("POD basis size",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+# plt.yscale("log")
+plt.savefig("images/" + prefix_plot + "basis_development.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "basis_development.png", format='png')
+plt.show()
 
-
-# # plot temporal evolution of cost funtiponal
-# # plt.rcParams["figure.figsize"] = (10,2)
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#          J_h_t-J_r_t, color='r', label="exact")
-# plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-#          temporal_interval_error, c='#1f77b4', label="estimate")
-
-# plt.grid()
-# plt.legend(fontsize=14)
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-# plt.xlabel('$t \; [$s$]$')
-# plt.ylabel("$J(u_h) - J(u_N)$",fontsize=16)
-# plt.xlim([0, n_slabs*time_step_size])
-# #plt.title("temporal evaluation of cost funtional")
-# plt.savefig("images/" + prefix_plot + "error_estimate_over_time.eps", format='eps')
-# plt.savefig("images/" + prefix_plot + "error_estimate_over_time.png", format='png')
-# plt.show()
-
-
-
+# record_basis_size
 
 projected_reduced_solutions = []
 for primal_reduced_solution in primal_reduced_solutions:
@@ -772,3 +824,6 @@ plt.colorbar(shrink=0.75)
 plt.savefig("images/" + prefix_plot + "solution_error.eps", format='eps')
 plt.savefig("images/" + prefix_plot + "solution_error.png", format='png')
 plt.show()
+
+
+

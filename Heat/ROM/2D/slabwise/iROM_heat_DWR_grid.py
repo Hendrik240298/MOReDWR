@@ -247,8 +247,12 @@ temporal_interval_error = []
 temporal_interval_error_relative = []
 temporal_interval_error_incidactor = []
 
-tol = 1e-10
-tol_rel = 10e-2
+index_fom_solves = []
+record_basis_size = []
+record_dual_basis_size = []
+
+tol = 1e-2
+tol_rel = 1e-2
 tol_dual = 5e-1
 
 
@@ -349,6 +353,8 @@ for it_bucket in range(nb_buckets):
             # print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
             # print(" ")
 
+            index_fom_solves.append([index_primal+bucket_shift, estimated_error])
+
             temporal_interval_error_incidactor[index_primal] = 1
             # print(f"i:            {i}")
             # print(f"index_primal: {index_primal}")
@@ -435,6 +441,9 @@ for it_bucket in range(nb_buckets):
     index_primal = len_block_evaluation-1
     
     last_bucket_end_solution = project_vector(primal_reduced_solutions[-1],pod_basis)   #projected_reduced_solutions[-1]
+    
+    record_basis_size.append((pod_basis.shape[1]))
+    record_dual_basis_size.append((pod_basis_dual.shape[1]))
     
     for i in range(len_block_evaluation):
     #     reduced_solutions_buckets_combined.append(primal_reduced_solutions[i])
@@ -733,4 +742,44 @@ plt.savefig("images/" + prefix_plot + "error_estimate_over_time.eps", format='ep
 plt.savefig("images/" + prefix_plot + "error_estimate_over_time.png", format='png')
 plt.show()
 
+xx_index, yy_index = [], []
+for i in range(len(index_fom_solves)):
+    xx_index += [index_fom_solves[i][0] * time_step_size,
+                (index_fom_solves[i][0] + 1) * time_step_size, (index_fom_solves[i][0] + 1) * time_step_size]
+    yy_index += [index_fom_solves[i][1],index_fom_solves[i][1], np.inf]      
 
+
+
+plt.scatter([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], marker='x',c='#1f77b4', label="Basis enrichment")
+plt.plot([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], '--' ,marker='x',c='#1f77b4')
+
+# plt.plot(xx_index,yy_index, color='r')
+plt.grid()
+plt.legend(fontsize=14)
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel('$t \; [$s$]$')
+plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+plt.yscale("log")
+
+plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.png", format='png')
+plt.show()
+
+
+print(len(index_fom_solves))
+
+plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size/len(record_basis_size)), record_basis_size, c='#1f77b4',label="primal")
+# plt.grid()
+plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size/len(record_dual_basis_size)), record_dual_basis_size, c='r',label="dual")
+#     np.arange(len(record_basis_size))*len_block_evaluation*time_step_size, record_basis_size, c='#1f77b4')
+plt.grid()
+plt.legend(fontsize=14)
+# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+plt.xlabel("$t$ $[$s$]$",fontsize=16)
+plt.ylabel("POD basis size",fontsize=16)
+plt.xlim([0, n_slabs*time_step_size])
+# plt.yscale("log")
+plt.savefig("images/" + prefix_plot + "basis_development.eps", format='eps')
+plt.savefig("images/" + prefix_plot + "basis_development.png", format='png')
+plt.show()

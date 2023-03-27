@@ -26,7 +26,7 @@ TODO Try to repair primal FOM
 """
 
 
-PLOTTING = False
+PLOTTING = True
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
 MOTHER_PATH = "/home/hendrik/Cloud/Code/MORe_DWR/Elastodynamics/"
 
@@ -335,9 +335,13 @@ temporal_solution_diff_norm = []
 
 goal_func_error = []
 
+index_fom_solves = []
+record_basis_size = []
+record_dual_basis_size = []
+
 tol = 5e-4/(slab_properties["n_total"])
 tol = 1e-5
-tol_rel = 10e-2
+tol_rel = 1e-2
 tol_dual = 5e-1
 forwardsteps = 5
 
@@ -438,6 +442,8 @@ for it_bucket in range(nb_buckets):
             # print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
             # print(" ")
 
+            index_fom_solves.append([index_primal+bucket_shift, estimated_error])
+
             temporal_interval_error_incidactor[index_primal] = 1
         
             # solve primal FOM system
@@ -524,6 +530,9 @@ for it_bucket in range(nb_buckets):
         number_FOM_solves += 1
     else:
         last_bucket_end_solution = project_vector(primal_reduced_solutions[index_primal], pod_basis)
+        
+    record_basis_size.append(pod_basis["displacement"].shape[1]+ pod_basis["velocity"].shape[1]) 
+    record_dual_basis_size.append(pod_basis_dual["displacement"].shape[1]+ pod_basis_dual["velocity"].shape[1])
 # %% ----------------------------------------- VERIFICATION -----------------------------------------
 start_time = time.time()
 last_bucket_end_solution = np.zeros(matrix_no_bc.shape[0])
@@ -653,6 +662,7 @@ if PLOTTING:
 
     # Cost functional
     # plt.rcParams["figure.figsize"] = (10, 6)
+    plt.rc('text', usetex=True)
     plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
         J_h_t, color='r', label="$u_h$")
     plt.plot(np.vstack(primal_solutions_slab["time"])[:, -1],
@@ -702,10 +712,53 @@ if PLOTTING:
     plt.legend()
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
     plt.xlabel('$t \; [$s$]$')
-    plt.ylabel("$error$")
+    plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
     plt.yscale('log')
     plt.xlim([0, 40])
     plt.ylim(top=3*tol_rel)
     plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.eps", format='eps')
     plt.savefig("images/" + prefix_plot + "temporal_error_cost_funtional.png", format='png')
+    plt.show()
+    
+    
+    xx_index, yy_index = [], []
+    for i in range(len(index_fom_solves)):
+        xx_index += [index_fom_solves[i][0] * time_step_size,
+                    (index_fom_solves[i][0] + 1) * time_step_size, (index_fom_solves[i][0] + 1) * time_step_size]
+        yy_index += [index_fom_solves[i][1],index_fom_solves[i][1], np.inf]      
+
+
+
+    plt.scatter([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], marker='x',c='#1f77b4', label="Basis enrichment")
+    plt.plot([index_fom_solves[i][0]*time_step_size for i in range(len(index_fom_solves))],[index_fom_solves[i][1] for i in range(len(index_fom_solves))], '--' ,marker='x',c='#1f77b4')
+
+    # plt.plot(xx_index,yy_index, color='r')
+    plt.grid()
+    plt.legend(fontsize=14)
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    plt.xlabel('$t \; [$s$]$')
+    plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$",fontsize=16)
+    plt.xlim([0, slab_properties["n_total"]*time_step_size])
+    plt.yscale("log")
+
+    plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.eps", format='eps')
+    plt.savefig("images/" + prefix_plot + "basis_enrichment_positions.png", format='png')
+    plt.show()
+
+
+    print(len(index_fom_solves))
+    
+    plt.plot(np.arange(0, slab_properties["n_total"]*time_step_size, slab_properties["n_total"]*time_step_size/len(record_basis_size)), record_basis_size, c='#1f77b4',label="primal")
+    # plt.grid()
+    plt.plot(np.arange(0, slab_properties["n_total"]*time_step_size, slab_properties["n_total"]*time_step_size/len(record_dual_basis_size)), record_dual_basis_size, c='r',label="dual")
+    #     np.arange(len(record_basis_size))*len_block_evaluation*time_step_size, record_basis_size, c='#1f77b4')
+    plt.grid()
+    plt.legend(fontsize=14)
+    # plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    plt.xlabel("$t$ $[$s$]$",fontsize=16)
+    plt.ylabel("POD basis size",fontsize=16)
+    plt.xlim([0, slab_properties["n_total"]*time_step_size])
+    # plt.yscale("log")
+    plt.savefig("images/" + prefix_plot + "basis_development.eps", format='eps')
+    plt.savefig("images/" + prefix_plot + "basis_development.png", format='png')
     plt.show()
