@@ -176,7 +176,7 @@ for number_runs in range(1):
     # last_dual_solution = 
         grid_t, grid_x = np.mgrid[0:4:100j, 0:1:100j]
         primal_grid = scipy.interpolate.griddata(
-            coordinates, primal_solution, (grid_t, grid_x), method=INTERPOLATION_TYPE)
+            coordinates, primal_solution, (grid_t, grid_x), method="nearest")
         plt.title(f"Primal solution (ref={cycle.split('=')[1]})")
         plt.imshow(primal_grid.T, extent=(0, 4, 0, 1), origin='lower')
         plt.xlabel("$t$")

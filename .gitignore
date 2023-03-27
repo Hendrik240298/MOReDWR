@@ -49,3 +49,6 @@ Heat/ROM/2D/slabwise/images/cycle=4_tol=0.01_nb_sslabs=128_error_estimate_over_t
 **/images/**
 **/results/**
 **/rusult_in_paper_rn/**
+Heat/FOM/all_at_once/main.cc
+Heat/FOM/slabwise/Calculate derivatives of analytic solution to Hartmann problem.ipynb
+Heat/FOM/slabwise/main.cc
