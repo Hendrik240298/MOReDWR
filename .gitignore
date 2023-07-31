@@ -53,3 +53,13 @@ Heat/FOM/all_at_once/main.cc
 Heat/FOM/slabwise/Calculate derivatives of analytic solution to Hartmann problem.ipynb
 Heat/FOM/slabwise/main.cc
 Elastodynamics/ROM/mutliple_execution.sh
+Heat/MORe_DWR.code-workspace
+Elastodynamics/FOM/dual_rhs_no_bc_00242.txt
+Elastodynamics/FOM/primal_rhs_no_bc_00241.txt
+Elastodynamics/FOM/primal_rhs_no_bc_00242.txt
+Heat/FOM/2D/slabwise/dual_rhs_no_bc_01893.txt
+Heat/FOM/2D/slabwise/coordinates_t_01892.txt
+Heat/FOM/2D/slabwise/rhs_no_bc_01893.txt
+Heat/FOM/2D/slabwise/solution_01892.txt
+Heat/ROM/1D/slabwise/x.log
+Elastodynamics/ROM/out.txt
