@@ -21,8 +21,8 @@ MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
 
-space_cycles = 4
-time_cycles = 2
+space_cycles = 3
+time_cycles = 5
 
 space_label = []
 time_label = []
@@ -186,16 +186,16 @@ for time_cycle in range(time_cycles):
                     primal_solutions["time"].append(
                         slab_properties["time_points"][i][j+1])
 
-            for i, primal_solution in enumerate(primal_solutions["value"]):
-                save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
-                    primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions["time"][i])
+            # for i, primal_solution in enumerate(primal_solutions["value"]):
+            #     save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
+            #         primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions["time"][i])
 
             J_h_t = np.empty([slab_properties["n_total"], 1])
             for i in range(slab_properties["n_total"]):
                 J_h_t[i] = primal_solutions_slab["value"][i].dot(
                     dual_rhs_no_bc[i])
             J_h[space_cycle, time_cycle] = np.sum(J_h_t)
-
+            print("Cost functional:   " + str(J_h[space_cycle, time_cycle]))
             if time_cycle == 0:
                 space_label.append(n_dofs["space"])
             if space_cycle == 0:
@@ -206,6 +206,11 @@ J_h_rel = np.abs((J_h - J_h[-1, -1])/J_h[-1, -1]*100)
 
 # print(J_h_rel)
 print(f"BEST CF: {J_h[-1, -1]}")
+
+
+table = tabulate(J_h, headers=time_label,
+                 showindex=space_label, tablefmt="latex")
+print(table)
 
 
 table = tabulate(J_h_rel, headers=time_label,
