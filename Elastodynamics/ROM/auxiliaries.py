@@ -10,6 +10,8 @@ import time
 import sys
 from iPOD import reduce_vector, project_vector
 # %% Vtk plotting
+
+
 def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines = [
         "# vtk DataFile Version 3.0",
@@ -31,7 +33,7 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
     lines += grid
 
     for key, value in solution.items():
-        
+
         key2str = {"displacement": "disp", "velocity": "velo"}
         lines.append(f"SCALARS x_{key2str[key]} double 1")
         lines.append("LOOKUP_TABLE default")
@@ -52,12 +54,14 @@ def save_vtk(file_name, solution, grid, cycle=None, time=None):
         file.write("\n".join(lines))
 
 # %% save solutions to txt in scientific notation
+
+
 def save_solution_txt(file_name, solutions):
     # save solution to filename in txt format
     for i, solution in enumerate(solutions["value"]):
-         np.savetxt(file_name + f"{i:05}.txt", solution, fmt="%.16e")  
-    np.savetxt(file_name + "_time.txt", solutions["time"], fmt="%.16e")   
-     
+        np.savetxt(file_name + f"{i:05}.txt", solution, fmt="%.16e")
+    np.savetxt(file_name + "_time.txt", solutions["time"], fmt="%.16e")
+
 
 # %% read in solution that is saved in save_solution_txt
 def load_solution_txt(file_name):
@@ -70,8 +74,10 @@ def load_solution_txt(file_name):
     # read in solution from filename in txt format
     return solutions
 
-#%% read_in_discretization
-def read_in_discretization(PATH): 
+# %% read_in_discretization
+
+
+def read_in_discretization(PATH):
     # creating grid for vtk output
     grid = []
     with open(PATH + "/solution00000.vtk", "r") as f:
@@ -85,10 +91,10 @@ def read_in_discretization(PATH):
                     break
     # creating dof_matrix for vtk output
     dof_vector = np.loadtxt(PATH + "/dof.txt").astype(int)
-    dof_matrix = scipy.sparse.dok_matrix((dof_vector.shape[0], dof_vector.max()+1))
+    dof_matrix = scipy.sparse.dok_matrix(
+        (dof_vector.shape[0], dof_vector.max()+1))
     for i, j in enumerate(list(dof_vector)):
         dof_matrix[i, j] = 1.
-
 
     # Definition coordinates
     coordinates_x = np.loadtxt(PATH + "/coordinates_x.txt")
@@ -96,7 +102,7 @@ def read_in_discretization(PATH):
     for f in sorted([f for f in os.listdir(
             PATH) if "coordinates_t" in f]):
         list_coordinates_t.append(np.loadtxt(PATH + "/" + f))
-        
+
     slab_properties = {"n_total": len(list_coordinates_t)}
     coordinates_t = np.hstack(list_coordinates_t)
     coordinates = np.vstack((
@@ -106,36 +112,45 @@ def read_in_discretization(PATH):
 
     index2measuredisp = None
     try:
-        index2measuredisp = np.where((coordinates_x.T == (6, 0.5, 0)).all(axis=1))[0][1]
+        index2measuredisp = np.where(
+            (coordinates_x.T == (6, 0.5, 0)).all(axis=1))[0][1]
     except IndexError:
-        index2measuredisp = np.where((coordinates_x.T == (6, 1, 0)).all(axis=1))[0][1]
-    print(f"measure displacement at (6, 0.5, 0) with index: {index2measuredisp}")
+        index2measuredisp = np.where(
+            (coordinates_x.T == (6, 1, 0)).all(axis=1))[0][1]
+    print(
+        f"measure displacement at (6, 0.5, 0) with index: {index2measuredisp}")
 
     # n_dofs["space"] per unknown u and v -> 2*n_dofs["space"] for one block
     n_dofs = {"space": coordinates_x.shape[1], "time": coordinates_t.shape[0]}
-    n_dofs["solperstep"] =  int(n_dofs["time"] / slab_properties["n_total"] - 1)
-    n_dofs["time_step"] = 2*n_dofs["space"] # dofs per submatrix of each time quadrature point
+    n_dofs["solperstep"] = int(n_dofs["time"] / slab_properties["n_total"] - 1)
+    # dofs per submatrix of each time quadrature point
+    n_dofs["time_step"] = 2*n_dofs["space"]
 
-   
-    slab_properties["ordering"] =  np.argsort(list_coordinates_t[0]).astype(int)   # ordering of time quadrature points on slab wrt time
-    slab_properties["n_time_unknowns"] =  len(slab_properties["ordering"][1:])     # number of time steps with unknowns: e.g. in cg its len(ordering) -1 
-    slab_properties["time_points"] = [list_coordinates_t[i][slab_properties["ordering"]] for i in range(slab_properties["n_total"])] # time points of each slab
-    
+    slab_properties["ordering"] = np.argsort(list_coordinates_t[0]).astype(
+        int)   # ordering of time quadrature points on slab wrt time
+    # number of time steps with unknowns: e.g. in cg its len(ordering) -1
+    slab_properties["n_time_unknowns"] = len(slab_properties["ordering"][1:])
+    slab_properties["time_points"] = [list_coordinates_t[i][slab_properties["ordering"]]
+                                      for i in range(slab_properties["n_total"])]  # time points of each slab
+
     return n_dofs, slab_properties, index2measuredisp, dof_matrix, grid
 
 # %% read_in_LES
+
+
 def read_in_LES(OUTPUT_PATH, matrix_name, rhs_name):
     # Reading in system matix matrix_no_bc
-    [data, row, column] = np.loadtxt(OUTPUT_PATH + matrix_name) #"/matrix_no_bc.txt")
+    [data, row, column] = np.loadtxt(
+        OUTPUT_PATH + matrix_name)  # "/matrix_no_bc.txt")
     matrix_no_bc = scipy.sparse.csr_matrix(
         (data, (row.astype(int), column.astype(int))))
-    
+
     # Reading in rhs wo  bc
     rhs_no_bc = []
-    for f in sorted([f for f in os.listdir(OUTPUT_PATH) 
+    for f in sorted([f for f in os.listdir(OUTPUT_PATH)
                      if rhs_name in f]):
         rhs_no_bc.append(np.loadtxt(OUTPUT_PATH + "/" + f))
-    
+
     return matrix_no_bc, rhs_no_bc
 
 
@@ -158,19 +173,21 @@ def apply_boundary_conditions(matrix_no_bc, rhs_no_bc, path_boundary_ids):
             primal_system_rhs[-1][row] = 0.0
 
     return primal_matrix, primal_system_rhs
-    
+
 # %% reorder_matrix
+
+
 def reorder_matrix(matrix, slab_properties, n_dofs):
-    matrix_ordered =  matrix.copy() #np.zeros_like(matrix_no_bc)
+    matrix_ordered = matrix.copy()  # np.zeros_like(matrix_no_bc)
 
     for i in range(len(slab_properties["ordering"])):
-        #note: col=row and vice versa
+        # note: col=row and vice versa
         col_new_low = i*n_dofs["time_step"]
         col_new_up = (i+1)*n_dofs["time_step"]
         col_old_low = slab_properties["ordering"][i]*n_dofs["time_step"]
         col_old_up = (slab_properties["ordering"][i]+1)*n_dofs["time_step"]
         # print(f"{col_old_lsow}, {col_old_up} --> {col_new_low}, {col_new_up} ")
-        
+
         for j in range(len(slab_properties["ordering"])):
             row_new_low = j*n_dofs["time_step"]
             row_new_up = (j+1)*n_dofs["time_step"]
@@ -179,12 +196,14 @@ def reorder_matrix(matrix, slab_properties, n_dofs):
             # print(f"[{col_old_low}:{col_old_up}, {row_old_low}:{row_old_up}] --> [{col_new_low}:{col_new_up}, {row_new_low}:{row_new_up}]")
 
             # primal matricies
-            matrix_ordered[col_new_low:col_new_up,row_new_low:row_new_up] \
-                = matrix[col_old_low:col_old_up,row_old_low:row_old_up]
-                
+            matrix_ordered[col_new_low:col_new_up, row_new_low:row_new_up] \
+                = matrix[col_old_low:col_old_up, row_old_low:row_old_up]
+
     return matrix_ordered
-    
+
 # %% reorder_vector
+
+
 def reorder_vector(vector, slab_properties, n_dofs):
     vector_ordered = vector.copy()
     for i in range(len(slab_properties["ordering"])):
@@ -194,54 +213,70 @@ def reorder_vector(vector, slab_properties, n_dofs):
         index_old_up = (slab_properties["ordering"][i]+1)*n_dofs["time_step"]
 
         vector_ordered[index_new_low:index_new_up] = vector[index_old_low:index_old_up].copy()
-        
+
     return vector_ordered
 # %% solve_primal_FOM_step
+
+
 def solve_primal_FOM_step(primal_solutions, D_wbc, C_wbc, primal_system_rhs, slab_properties, n_dofs, i):
-    primal_rhs = primal_system_rhs[n_dofs["time_step"]:].copy() - C_wbc.dot(primal_solutions["value"][-1])
-    
+    primal_rhs = primal_system_rhs[n_dofs["time_step"]:].copy(
+    ) - C_wbc.dot(primal_solutions["value"][-1])
+
     primal_solution = scipy.sparse.linalg.spsolve(D_wbc, primal_rhs)
     for j in range(slab_properties["n_time_unknowns"]):
-        primal_solutions["value"].append(primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+        primal_solutions["value"].append(
+            primal_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
         primal_solutions["time"].append(slab_properties["time_points"][i][j+1])
-    
+
     return primal_solutions
-    
+
 # %% solve_dual_FOM_step
+
+
 def solve_dual_FOM_step(dual_solutions, A_wbc, B_wbc, dual_system_rhs, slab_properties, n_dofs, i):
-    dual_rhs = dual_system_rhs[:-n_dofs["time_step"]].copy() - B_wbc.dot(dual_solutions["value"][-1])
+    dual_rhs = dual_system_rhs[:-n_dofs["time_step"]
+                               ].copy() - B_wbc.dot(dual_solutions["value"][-1])
     dual_solution = scipy.sparse.linalg.spsolve(A_wbc, dual_rhs)
 
     for j in list(range(slab_properties["n_time_unknowns"]))[::-1]:
-        dual_solutions["value"].append(dual_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
+        dual_solutions["value"].append(
+            dual_solution[j*n_dofs["time_step"]:(j+1)*n_dofs["time_step"]])
         dual_solutions["time"].append(slab_properties["time_points"][i][j])
 
     return dual_solutions
 
 # %% solve_primal_ROM_step
+
+
 def solve_primal_ROM_step(projected_reduced_solutions, reduced_solution_old, D_reduced, C_reduced, rhs_no_bc, pod_basis, slab_properties, n_dofs, i):
 
-    reduced_rhs = reduce_vector(rhs_no_bc[n_dofs["time_step"]:].copy(), pod_basis) - C_reduced.dot(reduced_solution_old)
+    reduced_rhs = reduce_vector(rhs_no_bc[n_dofs["time_step"]:].copy(
+    ), pod_basis) - C_reduced.dot(reduced_solution_old)
     reduced_solution = np.linalg.solve(D_reduced, reduced_rhs)
-    
-    reduced_solution_old = reduced_solution[(slab_properties["n_time_unknowns"]-1)*n_dofs["reduced_primal"]:(slab_properties["n_time_unknowns"])*n_dofs["reduced_primal"]]
+
+    reduced_solution_old = reduced_solution[(slab_properties["n_time_unknowns"]-1)*n_dofs["reduced_primal"]:(
+        slab_properties["n_time_unknowns"])*n_dofs["reduced_primal"]]
 
     for j in range(slab_properties["n_time_unknowns"]):
-        projected_reduced_solutions["value"].append(project_vector(reduced_solution[j*n_dofs["reduced_primal"]:(j+1)*n_dofs["reduced_primal"]],pod_basis))
-        projected_reduced_solutions["time"].append(slab_properties["time_points"][i][j+1])
+        projected_reduced_solutions["value"].append(project_vector(
+            reduced_solution[j*n_dofs["reduced_primal"]:(j+1)*n_dofs["reduced_primal"]], pod_basis))
+        projected_reduced_solutions["time"].append(
+            slab_properties["time_points"][i][j+1])
 
     return projected_reduced_solutions, reduced_solution_old
-    
+
 # %% compute error estimate
+
 
 def error_estimator(projected_reduced_solutions, dual_projected_reduced_solutions, matrix_no_bc, rhs_no_bc, slab_properties):
 
-    projected_slab = { "value": [], "time": [] }
-    dual_projected_slab = { "value": [], "time": [] }
+    projected_slab = {"value": [], "time": []}
+    dual_projected_slab = {"value": [], "time": []}
 
-    projected_slab["value"] = np.hstack(projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1:])
-    projected_slab["time"] = np.hstack(projected_reduced_solutions["time"][-slab_properties["n_time_unknowns"]-1:])
-
+    projected_slab["value"] = np.hstack(
+        projected_reduced_solutions["value"][-slab_properties["n_time_unknowns"]-1:])
+    projected_slab["time"] = np.hstack(
+        projected_reduced_solutions["time"][-slab_properties["n_time_unknowns"]-1:])
 
     # find argument where time of dual_projected_reduced_solutions is equal to time of projected_slab
     index_of_dual = []
@@ -252,19 +287,21 @@ def error_estimator(projected_reduced_solutions, dual_projected_reduced_solution
                 break
 
     # hstack last entries of projected_reduced_solutions to obtain slab
-    dual_projected_slab["value"] = np.hstack([dual_projected_reduced_solutions["value"][i] for i in index_of_dual])
+    dual_projected_slab["value"] = np.hstack(
+        [dual_projected_reduced_solutions["value"][i] for i in index_of_dual])
 
     # hstack i-th last entries of projected_reduced_solutions["time"] to obtain slab
-    dual_projected_slab["time"] = np.hstack([dual_projected_reduced_solutions["time"][i] for i in index_of_dual])
+    dual_projected_slab["time"] = np.hstack(
+        [dual_projected_reduced_solutions["time"][i] for i in index_of_dual])
 
     residual_slab = - matrix_no_bc.dot(projected_slab["value"]) + rhs_no_bc
 
     error_estimate = (np.dot(dual_projected_slab["value"], residual_slab))
 
-    return error_estimate    
+    return error_estimate
 
 
-def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_properties,i):
+def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_properties, i):
 
     time_points = slab_properties["time_points"][i]
 
@@ -276,7 +313,8 @@ def evaluate_cost_functional(projected_reduced_solutions, dual_rhs_no_bc, slab_p
                 index_of_primal.append(k)
                 break
 
-    primal_projected_slab = np.hstack([projected_reduced_solutions["value"][i] for i in index_of_primal])
+    primal_projected_slab = np.hstack(
+        [projected_reduced_solutions["value"][i] for i in index_of_primal])
 
     cost_functional = np.dot(primal_projected_slab, dual_rhs_no_bc)
 
@@ -294,29 +332,30 @@ def find_solution_indicies_for_slab(slab_times, solution_times):
 
     return solution_index
 
+
 def plot_matrix(matrix, title="matrix"):
 
-    # check if type(matrix) is np.ndarray 
-    
+    # check if type(matrix) is np.ndarray
+
     if type(matrix) != np.ndarray:
         matrix = matrix.toarray()
-    
+
     max_value = np.max(np.max(matrix))
     # prepare x and y for scatter plot
     plot_list = []
-    for rows,cols in zip(np.where(matrix!=0)[0],np.where(matrix!=0)[1]):
-        #if (np.abs(matrix[rows,cols]) > 1e-10): #-8):
-        plot_list.append([cols,rows,matrix[rows,cols]])
+    for rows, cols in zip(np.where(matrix != 0)[0], np.where(matrix != 0)[1]):
+        # if (np.abs(matrix[rows,cols]) > 1e-10): #-8):
+        plot_list.append([cols, rows, matrix[rows, cols]])
     plot_list = np.array(plot_list)
 
     # scatter plot with color bar, with rows on y axis
-    plt.scatter(plot_list[:,0],plot_list[:,1],c=plot_list[:,2], s=1)
+    plt.scatter(plot_list[:, 0], plot_list[:, 1], c=plot_list[:, 2], s=1)
 
     cb = plt.colorbar()
 
     # full range for x and y axes
-    plt.xlim(0,matrix.shape[1])
-    plt.ylim(0,matrix.shape[0])
+    plt.xlim(0, matrix.shape[1])
+    plt.ylim(0, matrix.shape[0])
     plt.gca().invert_yaxis()
     plt.title(title)
     plt.show()
