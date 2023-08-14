@@ -32,7 +32,7 @@ MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
 
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
-cycle = "cycle=0-0"
+cycle = "cycle=2-3"
 SAVE_PATH = MOTHER_PATH + "Data/ROM/" + cycle + "/"
 
 LOAD_SOLUTION = False
@@ -51,9 +51,9 @@ print(identifier)
 # "../../FOM/slabwise/output_" + CASE + "/dim=1/"
 
 # redirect terminjal output to file
-orig_stdout = sys.stdout
-f = open("out.txt", "w")
-sys.stdout = f
+# orig_stdout = sys.stdout
+# f = open("out.txt", "w")
+# sys.stdout = f
 
 # ENERGY_DUAL   = {"displacement": 1-1e-8,
 #                  "velocity":     1-1e-8}
@@ -107,26 +107,44 @@ matrix_no_bc_for_dual = matrix_no_bc.copy()
 # * System Matrix = system_matrix + weight_mass_matrix * mass_matrix
 matrix_no_bc = matrix_no_bc + mass_matrix_no_bc
 
-mass_matrix_up_right_no_bc = np.zeros(
-    (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-mass_matrix_up_right_no_bc[:n_dofs["time_step"], -n_dofs["time_step"]                           :] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-mass_matrix_up_right_no_bc = scipy.sparse.csr_matrix(
-    mass_matrix_up_right_no_bc)
+
+print("begin vectorize mass matrix ...")
+rows_mass, cols_mass, values_mass = scipy.sparse.find(
+    mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]])
+print("end vectorize mass matrix ...")
+
+
+mass_matrix_up_right_no_bc = coo_matrix(
+    (values_mass, (rows_mass, mass_matrix_no_bc.shape[1] - n_dofs["time_step"] + cols_mass)), shape=mass_matrix_no_bc.shape).tocsc().tocsr()
 
 # * lower diagonal
-mass_matrix_down_right_no_bc = np.zeros(
-    (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-mass_matrix_down_right_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]                             :] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-mass_matrix_down_right_no_bc = scipy.sparse.csr_matrix(
-    mass_matrix_down_right_no_bc)
+mass_matrix_down_right_no_bc = coo_matrix(
+    (values_mass, (mass_matrix_no_bc.shape[1] - n_dofs["time_step"] + rows_mass, mass_matrix_no_bc.shape[1] - n_dofs["time_step"] + cols_mass)), shape=mass_matrix_no_bc.shape).tocsc().tocsr()
 
 # * left down corner --> transposed for dual LES
-mass_matrix_down_left_no_bc = np.zeros(
-    (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-mass_matrix_down_left_no_bc[-n_dofs["time_step"]:, :n_dofs["time_step"]
-                            ] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray().T
-mass_matrix_down_left_no_bc = scipy.sparse.csr_matrix(
-    mass_matrix_down_left_no_bc)
+mass_matrix_down_left_no_bc = coo_matrix(
+    (values_mass, (mass_matrix_no_bc.shape[1] - n_dofs["time_step"] + rows_mass, cols_mass)), shape=mass_matrix_no_bc.shape).tocsc().tocsr()
+
+# mass_matrix_up_right_no_bc = np.zeros(
+#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
+# mass_matrix_up_right_no_bc[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
+# mass_matrix_up_right_no_bc = scipy.sparse.csr_matrix(
+#     mass_matrix_up_right_no_bc)
+
+# # * lower diagonal
+# mass_matrix_down_right_no_bc = np.zeros(
+#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
+# mass_matrix_down_right_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
+# mass_matrix_down_right_no_bc = scipy.sparse.csr_matrix(
+#     mass_matrix_down_right_no_bc)
+
+# # * left down corner --> transposed for dual LES
+# mass_matrix_down_left_no_bc = np.zeros(
+#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
+# mass_matrix_down_left_no_bc[-n_dofs["time_step"]:, :n_dofs["time_step"]
+#                             ] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray().T
+# mass_matrix_down_left_no_bc = scipy.sparse.csr_matrix(
+#     mass_matrix_down_left_no_bc)
 
 # ? Apply mass_matrix to last time step? Thus diag(mass_matrix) = [0, 0, M.T] instead of [M.T, 0, 0]
 dual_matrix_no_bc = matrix_no_bc_for_dual.T + mass_matrix_no_bc.T
@@ -164,6 +182,9 @@ SKIP_PRIMAL = False
 
 # slab_properties["n_total"] = 100
 
+print("Start FOM solve ...")
+sparse_lu = scipy.sparse.linalg.splu(primal_matrix)
+
 if not SKIP_PRIMAL:
     start_time = time.time()
 
@@ -175,8 +196,9 @@ if not SKIP_PRIMAL:
         else:
             primal_rhs = primal_system_rhs[i].copy(
             ) + mass_matrix_up_right.dot(primal_solutions_slab["value"][-1])
-        primal_solution = scipy.sparse.linalg.spsolve(
-            primal_matrix, primal_rhs)
+        # primal_solution = scipy.sparse.linalg.spsolve(
+        #     primal_matrix, primal_rhs)
+        primal_solution = sparse_lu.solve(primal_rhs)
 
         primal_solutions_slab["value"].append(primal_solution)
         primal_solutions_slab["time"].append(slab_properties["time_points"][i])
@@ -185,6 +207,7 @@ if not SKIP_PRIMAL:
 
     print("Primal FOM time:   " + str(time_FOM))
     print("n_dofs[space]:     ", n_dofs["space"])
+    print(f"space dofs:       {primal_system_rhs[0].shape[0]}")
     print("time steps:        ", slab_properties["n_total"])
 
     primal_solutions = {
@@ -203,6 +226,7 @@ if not SKIP_PRIMAL:
         save_vtk(SAVE_PATH + f"/py_solution{i:05}.vtk", {"displacement": dof_matrix.dot(primal_solution[0:n_dofs["space"]]), "velocity": dof_matrix.dot(
             primal_solution[n_dofs["space"]:2 * n_dofs["space"]])}, grid, cycle=i, time=primal_solutions["time"][i])
 
+print("End FOM solve ...")
 
 # %% dual FOM solve ------------------------------------------------------------------------
 start_execution = time.time()
@@ -214,6 +238,8 @@ dual_solutions_slab = {"value": [],
                        "time": []}
 
 
+sparse_lu_dual = scipy.sparse.linalg.splu(dual_matrix)
+
 # list(range(slab_properties["n_total"]))[::-1]:
 for i in list(range(slab_properties["n_total"]-10, slab_properties["n_total"]))[::-1]:
     if i == len(list(range(slab_properties["n_total"])))-1:
@@ -223,7 +249,8 @@ for i in list(range(slab_properties["n_total"]-10, slab_properties["n_total"]))[
     else:
         dual_rhs = dual_system_rhs[i].copy(
         ) + mass_matrix_down_left.dot(dual_solutions_slab["value"][-1])
-    dual_solution = scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
+    dual_solution = sparse_lu_dual.solve(dual_rhs)
+    # dual_solution = scipy.sparse.linalg.spsolve(dual_matrix, dual_rhs)
 
     dual_solutions_slab["value"].append(dual_solution)
     dual_solutions_slab["time"].append(slab_properties["time_points"][i])
@@ -493,8 +520,9 @@ for it_bucket in range(nb_buckets):
 
             primal_rhs = primal_system_rhs[index_primal+bucket_shift].copy(
             ) + mass_matrix_up_right.dot(old_projected_solution)
-            new_projection_solution = scipy.sparse.linalg.spsolve(
-                primal_matrix, primal_rhs)
+            # new_projection_solution = scipy.sparse.linalg.spsolve(
+            #     primal_matrix, primal_rhs)
+            new_projection_solution = sparse_lu.solve(primal_rhs)
             number_FOM_solves += 1
 
             # solve dual FOM system
@@ -504,11 +532,12 @@ for it_bucket in range(nb_buckets):
                     dual_reduced_solutions[index_primal+1], pod_basis_dual)
             else:
                 old_projected_dual_solution = np.zeros(
-                    dual_system_rhs.shape[1])
+                    dual_system_rhs[0].shape[0])
             dual_rhs = dual_system_rhs[0].copy(
             ) + mass_matrix_down_left.dot(old_projected_dual_solution)
-            new_projection_dual_solution = scipy.sparse.linalg.spsolve(
-                dual_matrix, dual_rhs)
+            # new_projection_dual_solution = scipy.sparse.linalg.spsolve(
+            #     dual_matrix, dual_rhs)
+            new_projection_dual_solution = sparse_lu_dual.solve(dual_rhs)
             number_FOM_solves += 1
 
             # update ROM basis
@@ -528,7 +557,7 @@ for it_bucket in range(nb_buckets):
                     = iPOD(pod_basis["velocity"],
                            bunch["velocity"],
                            singular_values["velocity"],
-                           primal_solution[n_dofs["space"]:2 * n_dofs["space"]],
+                           primal_solution[n_dofs["space"]                                           :2 * n_dofs["space"]],
                            total_energy["velocity"],
                            ENERGY_PRIMAL["velocity"],
                            bunch_size)
