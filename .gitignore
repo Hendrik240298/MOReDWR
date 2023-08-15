@@ -63,3 +63,10 @@ Heat/FOM/2D/slabwise/rhs_no_bc_01893.txt
 Heat/FOM/2D/slabwise/solution_01892.txt
 Heat/ROM/1D/slabwise/x.log
 Elastodynamics/ROM/out.txt
+README.md
+Elastodynamics/ROM/cf/*
+Heat/ROM/2D/slabwise/long_term_polution_10x.txt
+Elastodynamics/ROM/rom_time_tol*
+README.md
+README.md
+README.md

@@ -12,6 +12,7 @@ import random
 from iPOD_1D import iPOD, ROM_update, ROM_update_dual, reduce_matrix, reduce_vector, project_vector
 # import imageio
 
+from tabulate import tabulate
 
 PLOTTING = False
 INTERPOLATION_TYPE = "cubic"  # "linear", "cubic"
@@ -19,7 +20,7 @@ CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/1D/moving_source/slabwise/FOM/"
-cycle = "cycle=4-3"
+cycle = "cycle=4-4"
 SAVE_PATH = MOTHER_PATH + "Data/1D/moving_source/slabwise/ROM/" + cycle + "/"
 # SAVE_PATH = cycle + "/output_ROM/"
 
@@ -158,7 +159,6 @@ J["u_h"] = np.sum(J_h_t)
 
 # %%
 time_dofs_per_time_interval = int(n_dofs["time"] / n_slabs)
-print(f"time_dofs_per_time_interval: {time_dofs_per_time_interval}")
 # dofs_per_time_interval = time_dofs_per_time_interval * n_dofs["space"]
 
 # %% initilaize ROM framework
@@ -284,7 +284,7 @@ extime_update = 0.0
 number_FOM_solves = 0
 
 # 64*2*2# 32 # int(2*slab_properties["n_total"]/len_block_evaluation)
-nb_buckets = 32  # 1
+nb_buckets = 32
 len_block_evaluation = int(n_slabs/nb_buckets)
 
 forwardsteps = len_block_evaluation
@@ -512,264 +512,119 @@ for it_bucket in range(nb_buckets):
 
 # %% ---------------------- VERIFICATION ------------------------------------------------------------
 
+size_POD = pod_basis.shape[1]
+size_POD_dual = pod_basis_dual.shape[1]
+print(f"POD size:      {size_POD}")
+print(f"POD dual size: {size_POD_dual}")
+
+probes = 7
+
+cutting = np.round(np.linspace(1, size_POD, probes)).astype(int)
+cutting_dual = np.round(np.linspace(1, size_POD, probes)).astype(int)
+prediction = np.zeros((probes, probes))
 
 start_time = time.time()
-primal_reduced_solutions = [reduce_vector(
-    np.zeros(matrix_no_bc.shape[0]), pod_basis)]
-for i in range(n_slabs):
-    reduced_rhs = reduce_vector(rhs_no_bc[i], pod_basis)
-    reduced_rhs -= reduced_jump_matrix.dot(primal_reduced_solutions[-1])
-    primal_reduced_solutions.append(
-        scipy.linalg.lu_solve((LU_primal, piv_primal), reduced_rhs))
-primal_reduced_solutions = primal_reduced_solutions[1:]
-extime_solve += time.time() - extime_solve_start
+print(cutting)
+for i_cut, cut in enumerate(cutting):
+    for j_cut, cut_dual in enumerate(cutting_dual):
+        reduced_system_matrix = reduce_matrix(
+            matrix_no_bc, pod_basis[:, :cut], pod_basis[:, :cut])
+        reduced_jump_matrix = reduce_matrix(
+            jump_matrix_no_bc, pod_basis[:, :cut], pod_basis[:, :cut])
 
-# reversed forward dual solve
-extime_dual_solve_start = time.time()
-reduced_dual_solutions = [np.zeros(reduced_dual_jump_matrix_no_bc.shape[1])]
-for i in range(n_slabs):
-    # len(forwarded_reduced_solutions)-forwardstep])
-    reduced_dual_rhs = 2 * \
-        reduced_mass_matrix_no_bc.dot(primal_reduced_solutions[-i])
-    reduced_dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(
-        reduced_dual_solutions[-1])
-    reduced_dual_solutions.append(scipy.linalg.lu_solve(
-        (LU_dual, piv_dual), reduced_dual_rhs))
-reduced_dual_solutions = reduced_dual_solutions[1:]
-reduced_dual_solutions = reduced_dual_solutions[::-1]
-extime_dual_solve += time.time() - extime_dual_solve_start
+        reduced_dual_matrix = reduce_matrix(
+            dual_matrix_no_bc, pod_basis_dual[:, :cut_dual], pod_basis_dual[:, :cut_dual])
+        reduced_dual_jump_matrix_no_bc = reduce_matrix(
+            jump_matrix_no_bc, pod_basis_dual[:, :cut_dual], pod_basis_dual[:, :cut_dual])
 
+        reduced_mass_matrix_no_bc = reduce_matrix(
+            mass_matrix_no_bc, pod_basis_dual[:, :cut_dual], pod_basis[:, :cut])
 
-extime_error_start = time.time()
-temporal_interval_error = []
-temporal_interval_error_relative = []
-J_r_t = np.empty([n_slabs, 1])
+        reduced_matrix_no_bc_estimator = reduce_matrix(
+            matrix_no_bc, pod_basis_dual[:, :cut_dual], pod_basis[:, :cut])
+        reduced_jump_matrix_no_bc_estimator = reduce_matrix(
+            jump_matrix_no_bc, pod_basis_dual[:, :cut_dual], pod_basis[:, :cut])
+        reduced_mass_matrix_no_bc_cst_fct = reduce_matrix(
+            mass_matrix_no_bc, pod_basis[:, :cut], pod_basis[:, :cut])
 
-for i in range(n_slabs):
-    tmp = -reduced_matrix_no_bc_estimator.dot(
-        primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i], pod_basis_dual)
-    if i > 0:
-        tmp -= reduced_jump_matrix_no_bc_estimator.dot(
-            primal_reduced_solutions[i - 1])
-    else:
-        tmp -= reduced_jump_matrix_no_bc_estimator.dot(
-            reduce_vector(np.zeros(matrix_no_bc.shape[0]), pod_basis))
-    temporal_interval_error.append(np.dot(reduced_dual_solutions[i], tmp))
-    J_r_t[i] = np.dot(primal_reduced_solutions[i],
-                      reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
-    temporal_interval_error_relative.append(np.abs(
-        temporal_interval_error[-1])/np.abs(J_r_t[i]+temporal_interval_error[-1]))
-extime_error += time.time() - extime_error_start
-time_verification = time.time() - start_time
+        LU_primal, piv_primal = scipy.linalg.lu_factor(reduced_system_matrix)
+        LU_dual, piv_dual = scipy.linalg.lu_factor(reduced_dual_matrix)
 
-end_execution = time.time()
-execution_time_ROM = end_execution - start_execution
+        primal_reduced_solutions = [reduce_vector(
+            np.zeros(matrix_no_bc.shape[0]), pod_basis[:, :cut])]
+        for i in range(n_slabs):
+            reduced_rhs = reduce_vector(rhs_no_bc[i], pod_basis[:, :cut])
+            reduced_rhs -= reduced_jump_matrix.dot(
+                primal_reduced_solutions[-1])
+            primal_reduced_solutions.append(
+                scipy.linalg.lu_solve((LU_primal, piv_primal), reduced_rhs))
+        primal_reduced_solutions = primal_reduced_solutions[1:]
+        extime_solve += time.time() - extime_solve_start
 
-estimated_error = np.max(np.abs(temporal_interval_error_relative))
+        # reversed forward dual solve
+        extime_dual_solve_start = time.time()
+        reduced_dual_solutions = [
+            np.zeros(reduced_dual_jump_matrix_no_bc.shape[1])]
+        for i in range(n_slabs):
+            # len(forwarded_reduced_solutions)-forwardstep])
+            reduced_dual_rhs = 2 * \
+                reduced_mass_matrix_no_bc.dot(primal_reduced_solutions[-i])
+            reduced_dual_rhs -= reduced_dual_jump_matrix_no_bc.T.dot(
+                reduced_dual_solutions[-1])
+            reduced_dual_solutions.append(scipy.linalg.lu_solve(
+                (LU_dual, piv_dual), reduced_dual_rhs))
+        reduced_dual_solutions = reduced_dual_solutions[1:]
+        reduced_dual_solutions = reduced_dual_solutions[::-1]
+        extime_dual_solve += time.time() - extime_dual_solve_start
 
-print(f"Largest Error in Verification: {estimated_error}")
+        extime_error_start = time.time()
+        temporal_interval_error = []
+        temporal_interval_error_relative = []
+        J_r_t = np.empty([n_slabs, 1])
 
+        for i in range(n_slabs):
+            tmp = -reduced_matrix_no_bc_estimator.dot(
+                primal_reduced_solutions[i]) + reduce_vector(rhs_no_bc[i], pod_basis_dual[:, :cut_dual])
+            if i > 0:
+                tmp -= reduced_jump_matrix_no_bc_estimator.dot(
+                    primal_reduced_solutions[i - 1])
+            else:
+                tmp -= reduced_jump_matrix_no_bc_estimator.dot(
+                    reduce_vector(np.zeros(matrix_no_bc.shape[0]), pod_basis[:, :cut]))
+            temporal_interval_error.append(
+                np.dot(reduced_dual_solutions[i], tmp))
+            J_r_t[i] = np.dot(primal_reduced_solutions[i],
+                              reduced_mass_matrix_no_bc_cst_fct.dot(primal_reduced_solutions[i]))
+            temporal_interval_error_relative.append(np.abs(
+                temporal_interval_error[-1])/np.abs(J_r_t[i]+temporal_interval_error[-1]))
+        extime_error += time.time() - extime_error_start
+        time_verification = time.time() - start_time
 
-# %% Simulation Data
-temporal_interval_error_incidactor = temporal_interval_error_incidactor_combinded
+        end_execution = time.time()
+        execution_time_ROM = end_execution - start_execution
 
-print("FOM time:         " + str(execution_time_FOM))
-print("ROM time:         " + str(execution_time_ROM))
-print("speedup: act/max: " + str(execution_time_FOM/execution_time_ROM) + " / " +
-      str(len(temporal_interval_error_incidactor)/(2*np.sum(temporal_interval_error_incidactor))))
-print("Size ROM:         " + str(pod_basis.shape[1]))
-print("Size ROM - dual:  " + str(pod_basis_dual.shape[1]))
-print("FOM solves:       " + str(number_FOM_solves)
-      + " / " + str(len(temporal_interval_error_incidactor)))
-print(" ")
-print("ROM Solve time:      " + str(extime_solve))
-print("ROM dual Solve time: " + str(extime_dual_solve))
-# print("Project time:        " + str(extime_project))
-print("Error est time:      " + str(extime_error))
-print("Update time:         " + str(extime_update))
-print("Verification:        " + str(time_verification))
-print("Overall time:        " + str(extime_solve+extime_error +
-      extime_update+extime_dual_solve+time_verification))
-print(" ")
+        estimated_error = np.max(np.abs(temporal_interval_error_relative))
 
+        print(f"Largest Error in Verification: {estimated_error}")
 
-J["u_r"] = np.sum(J_r_t)
-print("J(u_h) =", J["u_h"])
-# TODO: in the future compare J(u_r) for different values of rprojected_reduced_dual_solutions
-print("J(u_r) =", J["u_r"])
-print("|J(u_h) - J(u_r)|/|J(u_h)| =",
-      np.abs(J["u_h"] - J["u_r"])/np.abs(J["u_h"]))
-print(" ")
+        true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
+        esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
 
+        if np.sum(true_tol) == np.sum(esti_tol):
+            prediction[i_cut, j_cut] = 0
+        else:
+            from sklearn.metrics import confusion_matrix
+            confusion_matrix = confusion_matrix(
+                true_tol.astype(int), esti_tol.astype(int))
+            eltl, egtl, eltg, egtg = confusion_matrix.ravel()
+            print(f"{i_cut} - {j_cut}: {cut} - {cut_dual}")
 
-# %% error calculation
-true_error = J['u_h'] - J['u_r']
+            prediction[i_cut, j_cut] = (
+                eltg + egtl) / (eltg + egtl + eltl + egtg)*100
 
-temporal_interval_error_relative_fom = (J_h_t - J_r_t)/J_h_t
-
-real_max_error = np.max(np.abs(temporal_interval_error_relative_fom))
-real_max_error_index = np.argmax(np.abs(temporal_interval_error_relative_fom))
-
-estimated_max_error = np.max(np.abs(temporal_interval_error_relative))
-estimated_max_error_index = np.argmax(np.abs(temporal_interval_error_relative))
-
-print(
-    f"Largest estimated error at: {estimated_max_error_index} with: {estimated_max_error}")
-print(
-    f"Largest real error at:      {real_max_error_index} with: {real_max_error}")
-print(
-    f"We instead estimated:                 {np.abs(temporal_interval_error_relative)[real_max_error_index]}")
+        print(f"Predictions: {prediction[i_cut, j_cut]}")
 
 
-# %% error classification
-true_tol = np.abs((J_h_t - J_r_t)/J_h_t) > tol_rel
-esti_tol = np.abs(temporal_interval_error_relative) > tol_rel
-
-if np.sum(true_tol) == np.sum(esti_tol):
-    print("estimator works perfectly")
-else:
-    from sklearn.metrics import confusion_matrix
-    confusion_matrix = confusion_matrix(
-        true_tol.astype(int), esti_tol.astype(int))
-    eltl, egtl, eltg, egtg = confusion_matrix.ravel()
-    # n_slabs=100
-
-    print(
-        f"(error > tol & esti < tol): {eltg} ({round(100 * eltg / n_slabs,1)} %)  (very bad)")
-    print(
-        f"(error < tol & esti > tol): {egtl} ({round(100 * egtl / n_slabs,1)} %)  (bad)")
-    print(
-        f"(error > tol & esti > tol): {egtg} ({round(100 * egtg / n_slabs,1)} %)  (good)")
-    print(
-        f"(error < tol & esti < tol): {eltl} ({round(100 * eltl / n_slabs,1)} %)  (very good)")
-
-
-# %% effectivity calculation
-n_slabs_filter = 0
-eff_alternative_1 = 0
-eff_alternative_2 = 0
-# vft = np.zeros((2,2))
-# confusion_matrix = {"EGTL": 0, "EGTG": 0, "ELTG": 0, "ELTL": 0}
-predicted_tol = ((J_h_t-J_r_t) > tol).astype(int)
-# true_tol =
-for i in range(1, n_slabs, 1):
-    n_slabs_filter += -(temporal_interval_error_incidactor[i]-1)
-    eff_alternative_1 += (J_h_t[i]-J_r_t[i])/temporal_interval_error[i]
-    eff_alternative_2 += -(temporal_interval_error_incidactor[i]-1)*np.abs(
-        (J_h_t[i]-J_r_t[i])/temporal_interval_error[i])  # filter only non updated
-
-eff_alternative_1 /= (2*n_slabs)
-eff_alternative_2 /= (2*n_slabs_filter)
-# using FOM dual solution
-print("\nUsing z_h:")
-print("----------")
-error_estimator = sum(temporal_interval_error)
-print(f"True error:          {true_error}")
-print(f"Estimated error:     {error_estimator}")
-print(f"Effectivity index 1: {abs(true_error / error_estimator)}")
-print(f"Effectivity index 2: {eff_alternative_1[0]}")
-print(f"Effectivity index 3: {eff_alternative_2[0]}")
-
-
-# %% Plotting
-# Plot 3: temporal error
-# WARNING: hardcoding end time T = 4.
-
-prefix_plot = cycle + "_" + "tol=" + \
-    str(tol_rel) + "_" + "nb_sslabs=" + str(nb_buckets) + "_"
-
-# os.system('mv out.txt' + ' results/' + prefix_porlot + str(identifier) + '.txt')
-
-time_step_size = (coordinates_t[0]+coordinates_t[-1]) / (n_dofs["time"] / 2)
-xx, yy = [], []
-xx_FOM, yy_FOM = [], []
-cc = []
-
-for i, error in enumerate(temporal_interval_error_relative):
-    xx += [i * time_step_size,
-           (i + 1) * time_step_size, (i + 1) * time_step_size]
-    yy += [abs(error), abs(error), np.inf]
-
-
-for i, error in enumerate(temporal_interval_error_relative_fom):
-    xx_FOM += [i * time_step_size,
-               (i + 1) * time_step_size, (i + 1) * time_step_size]
-    yy_FOM += [abs(error), abs(error), np.inf]
-
-
-# --------------------------------
-# plot temporal error vs estimate
-# --------------------------------
-plt.rc('text', usetex=True)
-plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-         abs(temporal_interval_error_relative_fom), color='r', label="exact")
-plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-         [abs(ele) for ele in temporal_interval_error_relative], '--', c='#1f77b4', label="estimate")
-# , label="1\% relative error")
-plt.plot([0, 10], [tol_rel, tol_rel], '--', color='green')
-# plt.text(3, 1.2e-2, "$" + str(tol_rel*100) +
-#          "\%$ relative error", fontsize=12, color='green')
-plt.grid()
-plt.legend(fontsize=14)
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-plt.xlabel('$t \; [$s$]$', fontsize=15)
-# plt.ylabel("$\eta_{\rel}\\raisebox{-.5ex}{$|$}_{Q_l}$")
-# plt.ylabel("$\eta\\raisebox{-.5ex}{$|$}_{I_m}$",fontsize=16)
-plt.ylabel("$^{|J(u_h) - J(u_N)|}/_{|J(u_h)|}$", fontsize=16)
-plt.yscale("log")
-plt.xlim([0, n_slabs*time_step_size])
-plt.ylim(top=3*tol_rel)
-
-# plt.title("temporal evaluation of cost funtional")
-plt.savefig("images/" + prefix_plot +
-            "temporal_error_cost_funtional.eps", format='eps')
-plt.savefig("images/" + prefix_plot +
-            "temporal_error_cost_funtional.png", format='png')
-
-
-plt.show()
-
-
-# -------------------------------------------
-# plot temporal evolution of cost funtiponal
-# -------------------------------------------
-plt.rc('text', usetex=True)
-# plt.rcParams["figure.figsize"] = (10,2)
-plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-         J_h_t, color='r', label="$u_h$")
-plt.plot(np.arange(0, n_slabs*time_step_size, time_step_size),
-         J_r_t, '--', c='#1f77b4', label="$u_N$")
-plt.grid()
-plt.legend(fontsize=14, loc='upper right')
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel('$t \; [$s$]$')
-plt.ylabel("$J(u)$", fontsize=16)
-plt.xlim([0, n_slabs*time_step_size])
-# plt.title("temporal evaluation of cost funtional")
-plt.savefig("images/" + prefix_plot +
-            "temporal_cost_funtional.eps", format='eps')
-plt.savefig("images/" + prefix_plot +
-            "temporal_cost_funtional.png", format='png')
-plt.show()
-
-print(len(index_fom_solves))
-
-# ----------------------------------------------
-# plot temporal evolution of reduced basis size
-# ----------------------------------------------
-plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size /
-         len(record_basis_size)), record_basis_size, c='#1f77b4', label="primal")
-# plt.grid()
-plt.plot(np.arange(0, n_slabs*time_step_size, n_slabs*time_step_size /
-         len(record_dual_basis_size)), record_dual_basis_size, c='r', label="dual")
-#     np.arange(len(record_basis_size))*len_block_evaluation*time_step_size, record_basis_size, c='#1f77b4')
-plt.grid()
-plt.legend(fontsize=14)
-# plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-plt.xlabel("$t$ $[$s$]$", fontsize=16)
-plt.ylabel("POD basis size", fontsize=16)
-plt.xlim([0, n_slabs*time_step_size])
-# plt.yscale("log")
-plt.savefig("images/" + prefix_plot + "basis_development.eps", format='eps')
-plt.savefig("images/" + prefix_plot + "basis_development.png", format='png')
-plt.show()
+table = tabulate(prediction,  headers=np.round(cutting_dual/cutting_dual[-1]*100),
+                 showindex=np.round(cutting/cutting[-1]*100),  tablefmt="latex")
+print(table)

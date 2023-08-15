@@ -1602,7 +1602,7 @@ int main()
 			1,			  // s ->  spatial FE degree
 			r,			  // r -> temporal FE degree
 			t,			  // time_points,
-			4,			  // max_n_refinement_cycles,
+			3,			  // 4,		  // max_n_refinement_cycles,
 			true,		  // refine_space
 			false,		  // refine_time
 			false		  // split_slabs
