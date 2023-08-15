@@ -125,34 +125,11 @@ mass_matrix_down_right_no_bc = coo_matrix(
 mass_matrix_down_left_no_bc = coo_matrix(
     (values_mass, (mass_matrix_no_bc.shape[1] - n_dofs["time_step"] + rows_mass, cols_mass)), shape=mass_matrix_no_bc.shape).tocsc().tocsr()
 
-# mass_matrix_up_right_no_bc = np.zeros(
-#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-# mass_matrix_up_right_no_bc[:n_dofs["time_step"], -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-# mass_matrix_up_right_no_bc = scipy.sparse.csr_matrix(
-#     mass_matrix_up_right_no_bc)
-
-# # * lower diagonal
-# mass_matrix_down_right_no_bc = np.zeros(
-#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-# mass_matrix_down_right_no_bc[-n_dofs["time_step"]:, -n_dofs["time_step"]:] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray()
-# mass_matrix_down_right_no_bc = scipy.sparse.csr_matrix(
-#     mass_matrix_down_right_no_bc)
-
-# # * left down corner --> transposed for dual LES
-# mass_matrix_down_left_no_bc = np.zeros(
-#     (mass_matrix_no_bc.shape[0], mass_matrix_no_bc.shape[1]))
-# mass_matrix_down_left_no_bc[-n_dofs["time_step"]:, :n_dofs["time_step"]
-#                             ] = mass_matrix_no_bc[:n_dofs["time_step"], :n_dofs["time_step"]].toarray().T
-# mass_matrix_down_left_no_bc = scipy.sparse.csr_matrix(
-#     mass_matrix_down_left_no_bc)
-
 # ? Apply mass_matrix to last time step? Thus diag(mass_matrix) = [0, 0, M.T] instead of [M.T, 0, 0]
 dual_matrix_no_bc = matrix_no_bc_for_dual.T + mass_matrix_no_bc.T
 
-# print(type(matrix_no_bc))
-# print(type(matrix_no_bc_for_dual))
-# dual_matrix_no_bc = scipy.sparse.csr_matrix(matrix_no_bc_for_dual.T + mass_matrix_down_right_no_bc.T)
-
+# clear memory
+del mass_matrix_no_bc, matrix_no_bc_for_dual
 
 # %% Enforcing BC to primal und dual systems
 primal_matrix, primal_system_rhs = apply_boundary_conditions(
@@ -181,15 +158,21 @@ SKIP_PRIMAL = False
 
 
 # slab_properties["n_total"] = 100
-
-print("Start FOM solve ...")
+print("Start LR Decomposition ...")
+start_time = time.time()
 sparse_lu = scipy.sparse.linalg.splu(primal_matrix)
+end_time = time.time()
+print("Time LR Decomposition: " + str(end_time - start_time))
+print("Start FOM solve ...")
 
 if not SKIP_PRIMAL:
     start_time = time.time()
 
     primal_solutions_slab = {"value": [], "time": []}
     for i in range(slab_properties["n_total"]):
+        if i % 200 == 0:
+            print("Time Slab = " + str(i))
+
         if i == 0:
             primal_rhs = primal_system_rhs[i].copy(
             ) + mass_matrix_up_right.dot(np.zeros(primal_matrix.shape[0]))
@@ -204,6 +187,10 @@ if not SKIP_PRIMAL:
         primal_solutions_slab["time"].append(slab_properties["time_points"][i])
 
     time_FOM = time.time() - start_time
+
+    # write FOM time in fom_time.txt by appending the documwent
+    with open(SAVE_PATH + "fom_time.txt", "a") as myfile:
+        myfile.write(str(time_FOM) + "\n")
 
     print("Primal FOM time:   " + str(time_FOM))
     print("n_dofs[space]:     ", n_dofs["space"])
@@ -345,13 +332,15 @@ print(pod_basis["velocity"].shape[1])
 mass_matrix_up_right_reduced = reduce_matrix(
     mass_matrix_up_right_no_bc, pod_basis, pod_basis)
 system_matrix_reduced = reduce_matrix(matrix_no_bc, pod_basis, pod_basis)
-
+lu_system_matrix_reduced = scipy.sparse.linalg.splu(
+    system_matrix_reduced)
 # dual
 mass_matrix_down_left_reduced = reduce_matrix(
     mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
 dual_matrix_reduced = reduce_matrix(
     dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
-
+lu_dual_matrix_reduced = scipy.sparse.linalg.splu(
+    dual_matrix_reduced)
 # estimator
 reduced_matrix_no_bc_estimator = reduce_matrix(
     matrix_no_bc, pod_basis_dual, pod_basis)
@@ -392,7 +381,7 @@ record_dual_basis_size = []
 
 tol = 5e-4/(slab_properties["n_total"])
 tol = 1e-5
-tol_rel = 1e-2
+tol_rel = 2e-2
 tol_dual = 5e-1
 forwardsteps = 5
 
@@ -424,7 +413,7 @@ bunch_size = 1
 
 start_time_iROM = time.time()
 
-nb_buckets = 80  # int(2*slab_properties["n_total"]/len_block_evaluation)
+nb_buckets = 50  # int(2*slab_properties["n_total"]/len_block_evaluation)
 len_block_evaluation = int(slab_properties["n_total"]/nb_buckets)
 
 
@@ -435,7 +424,8 @@ temporal_interval_error_relative_combinded = []
 
 last_bucket_end_solution = np.zeros(matrix_no_bc.shape[0])
 for it_bucket in range(nb_buckets):
-    # print("bucket " + str(it_bucket+1) + " of " + str(nb_buckets) + " of length: " + str(len_block_evaluation))
+    # print("parent slab " + str(it_bucket+1) + " of " + str(nb_buckets) +
+    #       " of length: " + str(len_block_evaluation))
     bucket_shift = it_bucket*len_block_evaluation
     temporal_interval_error_incidactor = np.zeros(len_block_evaluation)
     while (True):
@@ -450,8 +440,10 @@ for it_bucket in range(nb_buckets):
         for i in range(len_block_evaluation):
             primal_rhs_reduced = reduce_vector(primal_system_rhs[i+bucket_shift].copy(
             ), pod_basis) + mass_matrix_up_right_reduced.dot(primal_reduced_solutions[-1])
-            primal_reduced_solutions.append(np.linalg.solve(
-                system_matrix_reduced, primal_rhs_reduced))
+            # primal_reduced_solutions.append(np.linalg.solve(
+            #     system_matrix_reduced, primal_rhs_reduced))
+            primal_reduced_solutions.append(
+                lu_system_matrix_reduced.solve(primal_rhs_reduced))
         primal_reduced_solutions = primal_reduced_solutions[1:]
 
         # solve reduced dual problem
@@ -460,8 +452,10 @@ for it_bucket in range(nb_buckets):
         for i in range(len_block_evaluation):
             dual_rhs_reduced = reduce_vector(dual_system_rhs[0].copy(
             ), pod_basis_dual) + mass_matrix_down_left_reduced.dot(dual_reduced_solutions[-1])
-            dual_reduced_solutions.append(np.linalg.solve(
-                dual_matrix_reduced, dual_rhs_reduced))
+            # dual_reduced_solutions.append(np.linalg.solve(
+            #     dual_matrix_reduced, dual_rhs_reduced))
+            dual_reduced_solutions.append(
+                lu_dual_matrix_reduced.solve(dual_rhs_reduced))
         dual_reduced_solutions = dual_reduced_solutions[1:]
         dual_reduced_solutions = dual_reduced_solutions[::-1]
 
@@ -502,7 +496,8 @@ for it_bucket in range(nb_buckets):
             break
         else:
             index_primal = np.argmax(np.abs(temporal_interval_error_relative))
-            # print(str(index_primal) + ":   " + str(np.abs(temporal_interval_error_relative[index_primal])))
+            # print(str(index_primal) + ":   " +
+            #       str(np.abs(temporal_interval_error_relative[index_primal])))
             # print(" ")
 
             index_fom_solves.append(
@@ -584,16 +579,26 @@ for it_bucket in range(nb_buckets):
 
             time_pod_update += time.time() - start_time_pod
 
-            # * Update reduced matrices
             start_time_matrix = time.time()
-            mass_matrix_up_right_reduced = reduce_matrix(
-                mass_matrix_up_right_no_bc, pod_basis, pod_basis)
+
+            # * Update reduced matrices
+            # reduced system matrix + lu decomposition
             system_matrix_reduced = reduce_matrix(
                 matrix_no_bc, pod_basis, pod_basis)
-            mass_matrix_down_left_reduced = reduce_matrix(
-                mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
+            lu_system_matrix_reduced = scipy.sparse.linalg.splu(
+                system_matrix_reduced)
+            # dual reduced system matrix + lu decomposition
             dual_matrix_reduced = reduce_matrix(
                 dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
+            lu_dual_matrix_reduced = scipy.sparse.linalg.splu(
+                dual_matrix_reduced)
+
+            mass_matrix_up_right_reduced = reduce_matrix(
+                mass_matrix_up_right_no_bc, pod_basis, pod_basis)
+            mass_matrix_down_left_reduced = reduce_matrix(
+                mass_matrix_down_left_no_bc, pod_basis_dual, pod_basis_dual)
+            # dual_matrix_reduced = reduce_matrix(
+            #     dual_matrix_no_bc, pod_basis_dual, pod_basis_dual)
 
             # * Update reduced matrices for reduced error estimator
             reduced_matrix_no_bc_estimator = reduce_matrix(
@@ -630,8 +635,10 @@ primal_reduced_solutions = [reduce_vector(last_bucket_end_solution, pod_basis)]
 for i in range(slab_properties["n_total"]):
     primal_rhs_reduced = reduce_vector(primal_system_rhs[i].copy(
     ), pod_basis) + mass_matrix_up_right_reduced.dot(primal_reduced_solutions[-1])
-    primal_reduced_solutions.append(np.linalg.solve(
-        system_matrix_reduced, primal_rhs_reduced))
+    # primal_reduced_solutions.append(np.linalg.solve(
+    #     system_matrix_reduced, primal_rhs_reduced))
+    primal_reduced_solutions.append(
+        lu_system_matrix_reduced.solve(primal_rhs_reduced))
 primal_reduced_solutions = primal_reduced_solutions[1:]
 
 dual_reduced_solutions = [
@@ -639,8 +646,10 @@ dual_reduced_solutions = [
 for i in range(slab_properties["n_total"]):
     dual_rhs_reduced = reduce_vector(dual_system_rhs[0].copy(
     ), pod_basis_dual) + mass_matrix_down_left_reduced.dot(dual_reduced_solutions[-1])
-    dual_reduced_solutions.append(np.linalg.solve(
-        dual_matrix_reduced, dual_rhs_reduced))
+    # dual_reduced_solutions.append(np.linalg.solve(
+    #     dual_matrix_reduced, dual_rhs_reduced))
+    dual_reduced_solutions.append(
+        lu_dual_matrix_reduced.solve(dual_rhs_reduced))
 dual_reduced_solutions = dual_reduced_solutions[1:]
 dual_reduced_solutions = dual_reduced_solutions[::-1]
 
@@ -669,6 +678,10 @@ estimated_error = np.max(np.abs(temporal_interval_error_relative))
 
 time_verification = time.time() - start_time
 time_iROM = time.time() - start_time_iROM
+
+# write rom time in rom_time_tol={tol_rel} by appending to file
+with open(f"rom_time_tol={tol_rel}.txt", "a") as f:
+    f.write(f"{time_iROM}\n")
 
 print(f"max error after verification: {estimated_error}")
 
@@ -816,11 +829,11 @@ if PLOTTING:
     # , label="1\% relative error")
     plt.plot([0, 40], [1e-2, 1e-2], '--', color='green')
     # plt.text(35, 1.2e-2, "$1\%$ relative error" , fontsize=12, color='green')
-    plt.text(27, 1.2e-2, "$" + str(tol_rel*100) +
-             "\%$ relative error", fontsize=12, color='green')
+    # plt.text(27, 1.2e-2, "$" + str(tol_rel*100) +
+    #          "\%$ relative error", fontsize=12, color='green')
 
-    # plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
-    #          [tol_rel, tol_rel], color='y', label="tolerance - relative")
+    plt.plot([primal_solutions_slab["time"][0][-1], primal_solutions_slab["time"][-1][-1]],
+             [tol_rel, tol_rel], color='y', label="tolerance - relative")
     plt.grid()
     plt.legend()
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
