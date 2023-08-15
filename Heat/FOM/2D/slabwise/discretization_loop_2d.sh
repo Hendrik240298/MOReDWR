@@ -9,7 +9,9 @@ do
   sed -i "1416s/= 0;/= ${i};/" main.cc
 
   make 
-  make run 
+  make run &
+
+  sleep 15
 
   sed -i "840s/-${i}/-0/" main.cc
   sed -i "920s/-${i}/-0/" main.cc
