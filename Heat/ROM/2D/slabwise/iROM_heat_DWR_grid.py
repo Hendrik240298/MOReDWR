@@ -17,7 +17,7 @@ MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
-cycle = "cycle=3-3"
+cycle = "cycle=5-5"
 SAVE_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/ROM/" + cycle + "/"
 # SAVE_PATH = cycle + "/output_ROM/"
 
