@@ -589,6 +589,8 @@ void SpaceTime<dim>::assemble_system(std::shared_ptr<Slab> &slab, unsigned int s
 		right_hand_side = std::make_shared<RightHandSideMovingSource<dim>>();
 	else if (problem_name == "rotating_circle" && dim == 2)
 		right_hand_side = std::make_shared<RightHandSideRotatingCircle<dim>>();
+	else if (problem_name == "rotating_circle_long_term" && dim == 2)
+		right_hand_side = std::make_shared<RightHandSideRotatingCircle<dim>>();
 	else
 		Assert(false, ExcNotImplemented());
 
@@ -1408,14 +1410,15 @@ int main()
 	{
 		deallog.depth_console(2);
 
-		const std::string problem_name = "rotating_circle"; //"two_sources";
-		const int dim = 2;									// 1;
+		const std::string problem_name = "rotating_circle_long_term"; //"rotating_circle"; //"two_sources";
+		const int dim = 2;											  // 1;
 
 		std::vector<unsigned int> r;
 		std::vector<double> t = {0.};
-		int time_cycle = 0; // start from 0
-		double T = 10.;
-		int N = 16 * 4 * std::pow(2, time_cycle);
+		int time_cycle = 5; // 0; // start from 0
+		int time_factor = 10;
+		double T = 10. * time_factor;
+		int N = 16 * 4 * std::pow(2, time_cycle) * time_factor;
 		double dt = T / N;
 		for (unsigned int i = 0; i < N; ++i)
 		{
