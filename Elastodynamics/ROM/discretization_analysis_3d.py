@@ -196,6 +196,9 @@ for time_cycle in range(time_cycles):
                     dual_rhs_no_bc[i])
             J_h[space_cycle, time_cycle] = np.sum(J_h_t)
             print("Cost functional:   " + str(J_h[space_cycle, time_cycle]))
+            # save costfunctional to file
+            np.savetxt("cf/" + cycle + ".txt", J_h_t)
+
             if time_cycle == 0:
                 space_label.append(n_dofs["space"])
             if space_cycle == 0:
