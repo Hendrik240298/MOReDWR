@@ -1410,13 +1410,13 @@ int main()
 	{
 		deallog.depth_console(2);
 
-		const std::string problem_name = "rotating_circle_long_term"; //"rotating_circle"; //"two_sources";
+		const std::string problem_name = "rotating_circle"; //"rotating_circle"; //"two_sources";
 		const int dim = 2;											  // 1;
 
 		std::vector<unsigned int> r;
 		std::vector<double> t = {0.};
-		int time_cycle = 5; // 0; // start from 0
-		int time_factor = 10;
+		int time_cycle = 0; // 0; // start from 0
+		int time_factor = 1;
 		double T = 10. * time_factor;
 		int N = 16 * 4 * std::pow(2, time_cycle) * time_factor;
 		double dt = T / N;
@@ -1432,7 +1432,7 @@ int main()
 			1,					 // s ->  spatial FE degree
 			r,					 // r -> temporal FE degree
 			t,					 // time points
-			(dim == 2) ? 6 : 10, // max_n_refinement_cycles,
+			(dim == 2) ? 8 : 10, // max_n_refinement_cycles,
 			true,				 // refine_space
 			false,				 // refine_time
 			false				 // split_slabs

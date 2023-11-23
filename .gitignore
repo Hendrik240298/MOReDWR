@@ -70,3 +70,8 @@ Elastodynamics/ROM/rom_time_tol*
 README.md
 README.md
 README.md
+**nfs**
+**experiment**
+**.log
+**.err.0
+**.out.0
