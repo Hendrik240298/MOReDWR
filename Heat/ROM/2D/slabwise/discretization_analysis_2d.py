@@ -18,11 +18,19 @@ CASE = ""  # "two" or "moving"
 MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
 MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Heat/"
+MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR_Revision2/MORe_DWR/Heat/"
 OUTPUT_PATH = MOTHER_PATH + "Data/2D/rotating_circle/slabwise/FOM/"
+LOG_PATH = MOTHER_PATH + "ROM/2D/slabwise/"
 
 
-space_cycles = 6
-time_cycles = 6
+# Check if file exists then delete it
+if os.path.exists(LOG_PATH + "discretization.log"):
+    os.remove(LOG_PATH + "discretization.log")
+else:
+    print("The file does not exist")
+
+space_cycles = 8
+time_cycles = 7
 
 space_label = []
 time_label = []
@@ -101,6 +109,7 @@ for time_cycle in range(time_cycles):
         start_execution = time.time()
         last_primal_solution = np.zeros_like(rhs_no_bc[0])
         primal_solutions = []
+        tic = time.time()
         for i in range(n_slabs):
             # creating primal rhs and applying BC to it
             primal_rhs = rhs_no_bc[i].copy()
@@ -111,7 +120,12 @@ for time_cycle in range(time_cycles):
             primal_solutions.append(
                 scipy.sparse.linalg.spsolve(primal_matrix, primal_rhs))
             last_primal_solution = primal_solutions[-1]
-
+        toc = time.time()
+        print(f"cycle={space_cycle}-{time_cycle} solved in {toc-tic:.2f}s")
+        with open(LOG_PATH + "discretization.log", 'a') as f:
+            f.write(f"cycle={space_cycle}-{time_cycle} solved in {toc-tic:.2f}s\n")
+   
+        
         end_execution = time.time()
         execution_time_FOM = end_execution - start_execution
         # plot primal solution
@@ -139,3 +153,7 @@ print(f"BEST CF: {J_h[-1, -1]}")
 table = tabulate(J_h_rel, headers=time_label,
                  showindex=space_label, tablefmt="latex")
 print(table)
+
+# Write table to file
+with open(LOG_PATH + "table_discretization.txt", 'w') as f:
+    f.write(table)

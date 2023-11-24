@@ -17,11 +17,18 @@ from auxiliaries import reorder_vector, error_estimator, save_solution_txt, load
 from auxiliaries import evaluate_cost_functional, find_solution_indicies_for_slab, plot_matrix
 
 
-MOTHER_PATH = "/home/hendrik/Code/MORe_DWR/Elastodynamics/"
+MOTHER_PATH = "/home/ifam/fischer/Code/MORe_DWR_Revision2/MORe_DWR/Elastodynamics/"
 OUTPUT_PATH = MOTHER_PATH + "/Data/3D/Rod/"
 OUTPUT_PATH_DUAL = MOTHER_PATH + "Dual_Elastodynamics/Data/3D/Rod/"
+LOG_PATH = MOTHER_PATH + "ROM/"
 
-space_cycles = 3
+# Check if file exists then delete it
+if os.path.exists(LOG_PATH + "discretization.log"):
+    os.remove(LOG_PATH + "discretization.log")
+else:
+    print("The file does not exist")
+
+space_cycles = 4
 time_cycles = 5
 
 space_label = []
@@ -170,7 +177,11 @@ for time_cycle in range(time_cycles):
 
             time_FOM = time.time() - start_time
 
-            print("Primal FOM time:   " + str(time_FOM))
+            print(f"cycle={space_cycle}-{time_cycle} solved in {time_FOM:.2f}s")
+            with open(LOG_PATH + "discretization.log", 'a') as f:
+                f.write(f"cycle={space_cycle}-{time_cycle} solved in {time_FOM:.2f}s\n")
+
+            # print("Primal FOM time:   " + str(time_FOM))
             print("n_dofs[space]:     ", n_dofs["space"])
             print("time steps:        ", slab_properties["n_total"])
 
@@ -219,3 +230,7 @@ print(table)
 table = tabulate(J_h_rel, headers=time_label,
                  showindex=space_label, tablefmt="latex")
 print(table)
+
+# Write table to file
+with open(LOG_PATH + "table_discretization.txt", 'w') as f:
+    f.write(table)
