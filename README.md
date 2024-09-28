@@ -1,9 +1,8 @@
-# MORe_DWR
+# MORe DWR
 
-For more information, we refer to the corresponding scientific paper: [MORe DWR: Space-time goal-oriented error control for incremental POD-based ROM for time-averaged goal functionals](https://www.sciencedirect.com/science/article/pii/S0021999124001128)
+This repository contains the code to the corresponding scientific paper: [MORe DWR: Space-time goal-oriented error control for incremental POD-based ROM for time-averaged goal functionals](https://www.sciencedirect.com/science/article/pii/S0021999124001128)
 
 ## Citation
-
 
     @article{fischer2024MOReDWR,
         title = {{MORe} {DWR}: {Space}-time goal-oriented error control for incremental {POD}-based {ROM} for time-averaged goal functionals},
