@@ -18,4 +18,4 @@ This repository contains the code to the corresponding scientific paper: [MORe D
 
 ## Contact
 
-Should you have any questions do not hesitate to send us an email.
+Should you have any questions, do not hesitate to send us an email.
